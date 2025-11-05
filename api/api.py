@@ -8,8 +8,9 @@ from data.database import Database
 from processing.text_processing import TextProcessor
 from indexing.indexer import Indexer, QueryProcessor
 from ranking.bm25_ranker import BM25Ranker
-from rag.rag_integration import RAGIntegration, LiveAssist
+from rag.rag_integration import RAGIntegration
 from data.stackoverflow_downloader import StackOverflowDownloader
+import requests
 
 
 
@@ -28,7 +29,6 @@ indexer = Indexer(db, text_processor)
 query_processor = QueryProcessor(db, text_processor)
 bm25_ranker = BM25Ranker(db, text_processor)
 rag_integration = RAGIntegration(STACK_API_KEY)
-live_assist = LiveAssist(STACK_API_KEY)
 stackoverflow_downloader = StackOverflowDownloader(api_key=STACK_API_KEY, client_id=CLIENT_ID)
 
 
@@ -46,41 +46,30 @@ def health_check():
 
 @app.route('/search', methods=['POST'])
 def search():
-
     try:
         data = request.get_json()
         query = data.get('query', '')
         max_results = data.get('max_results', 10)
-        use_live_assist = data.get('use_live_assist', True)
         
         if not query:
             return jsonify({'error': 'Query is required'}), 400
         
-
-        local_results = bm25_ranker.search_and_rank(query, max_results=max_results)
+        # Step 1: Search local database
+        results = bm25_ranker.search_and_rank(query, max_results=max_results)
         
-
-        should_use_live = (
-            use_live_assist and 
-            live_assist.should_use_live_assist(local_results)
-        )
+        # Step 2: If NO results, fetch from Stack Overflow API (Live Assist)
+        used_live = False
+        if len(results) == 0:
+            print(f"⚠️ No local results found for query: '{query}'")
+            results = _fetch_live_results(query, max_results=max_results)
+            used_live = True
         
-        live_results = []
-        if should_use_live:
-            live_results = live_assist.fetch_live_results(query, max_results=5)
-            
-
-            for result in live_results:
-                _cache_live_result(result)
-        
-
         response = {
             'query': query,
-            'local_results': local_results,
-            'live_results': live_results,
-            'used_live_assist': should_use_live,
-            'total_local': len(local_results),
-            'total_live': len(live_results)
+            'results': results,
+            'total_results': len(results),
+            'source': 'live' if used_live else 'local',
+            'used_live_assist': used_live
         }
         
         return jsonify(response)
@@ -91,47 +80,32 @@ def search():
 
 @app.route('/search_with_rag', methods=['POST'])
 def search_with_rag():
-
     try:
         data = request.get_json()
         query = data.get('query', '')
         max_results = data.get('max_results', 10)
-        use_live_assist = data.get('use_live_assist', True)
         
         if not query:
             return jsonify({'error': 'Query is required'}), 400
         
-
-        local_results = bm25_ranker.search_and_rank(query, max_results=max_results)
         
-
-        should_use_live = (
-            use_live_assist and 
-            live_assist.should_use_live_assist(local_results)
-        )
+        search_results = bm25_ranker.search_and_rank(query, max_results=max_results)
         
-        live_results = []
-        if should_use_live:
-            live_results = live_assist.fetch_live_results(query, max_results=5)
-            
-
-            for result in live_results:
-                _cache_live_result(result)
+        used_live = False
+        if len(search_results) == 0:
+            print(f"⚠️ No local results found for query: '{query}'")
+            search_results = _fetch_live_results(query, max_results=max_results)
+            used_live = True
         
-
-        all_contexts = local_results + live_results
+        rag_result = rag_integration.generate_answer(query, search_results)
         
-
-        rag_result = rag_integration.generate_answer(query, all_contexts)
-        
-
         response = {
             'query': query,
             'generated_answer': rag_result.get('answer', ''),
             'citations': rag_result.get('citations', []),
-            'local_results': local_results,
-            'live_results': live_results,
-            'used_live_assist': should_use_live,
+            'search_results': search_results,
+            'source': 'live' if used_live else 'local',
+            'used_live_assist': used_live,
             'rag_success': rag_result.get('success', False),
             'total_contexts_used': rag_result.get('retrieved_count', 0)
         }
@@ -164,77 +138,6 @@ def download_data():
             'message': f'Downloaded and indexed data for tags: {tags}',
             'total_questions': question_count
         })
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/query_optimize', methods=['POST'])
-def query_optimize():
-    try:
-        data = request.get_json()
-        query = data.get('query', '')
-        
-        if not query:
-            return jsonify({'error': 'Query is required'}), 400
-        
-
-        processed_query = query_processor.process_query(query)
-        
-
-        optimized_terms = query_processor.optimize_query_terms(processed_query['terms'])
-        
-
-        retrieved_docs = query_processor.boolean_retrieval(optimized_terms)
-        
-        response = {
-            'original_query': query,
-            'processed_terms': processed_query['terms'],
-            'optimized_terms': optimized_terms,
-            'phrases': processed_query['phrases'],
-            'biwords': processed_query['biwords'],
-            'retrieved_docs_count': len(retrieved_docs)
-        }
-        
-        return jsonify(response)
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/phrase_search', methods=['POST'])
-def phrase_search():
-
-    try:
-        data = request.get_json()
-        phrase = data.get('phrase', '')
-        
-        if not phrase:
-            return jsonify({'error': 'Phrase is required'}), 400
-        
-
-        matching_docs = query_processor.phrase_search(phrase)
-        
-
-        results = []
-        for doc_id, doc_type in matching_docs:
-            if doc_type == 'question':
-                question = db.get_question(doc_id)
-                if question:
-                    results.append({
-                        'question_id': doc_id,
-                        'title': question.get('title', ''),
-                        'link': question.get('link', ''),
-                        'score': question.get('score', 0)
-                    })
-        
-        response = {
-            'phrase': phrase,
-            'matches': results,
-            'total_matches': len(results)
-        }
-        
-        return jsonify(response)
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -273,10 +176,8 @@ def _build_index():
         body = q_dict['body']
         tags = json.loads(q_dict.get('tags', '[]'))
         
-
         indexer.index_question(question_id, title, body, tags)
         
-
         answers = db.get_answers(question_id)
         for answer in answers:
             answer_id = answer['answer_id']
@@ -288,30 +189,81 @@ def _build_index():
     
     print("Indexing complete!")
     
-
     bm25_ranker.clear_cache()
 
 
-def _cache_live_result(result: Dict):
-
+def _fetch_live_results(query: str, max_results: int = 5) -> List[Dict]:
+    """Fetch live results from Stack Overflow API when local search fails"""
     try:
+        print(f"No local results found. Fetching live data from Stack Overflow API...")
+        
+        params = {
+            'site': 'stackoverflow',
+            'order': 'desc',
+            'sort': 'relevance',
+            'q': query,
+            'filter': '!9_bDDxJY5',
+            'pagesize': max_results
+        }
+        
+        if STACK_API_KEY:
+            params['key'] = STACK_API_KEY
+        
+        response = requests.get(
+            "https://api.stackexchange.com/2.3/search/advanced",
+            params=params,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            items = data.get('items', [])
+            
+            results = []
+            for item in items:
+                result = {
+                    'question_id': item.get('question_id'),
+                    'title': item.get('title', ''),
+                    'body': item.get('body', ''),
+                    'link': item.get('link', ''),
+                    'score': item.get('score', 0),
+                    'tags': json.dumps(item.get('tags', [])),
+                    'bm25_score': 0.0,
+                    'answers': [],
+                    'source': 'live'
+                }
+                results.append(result)
+                
+                _cache_live_result(item)
+            
+            print(f"✓ Fetched {len(results)} live results from Stack Overflow")
+            return results
+        else:
+            print(f"Stack Overflow API returned status: {response.status_code}")
+            return []
+    
+    except Exception as e:
+        print(f"Error fetching live results: {e}")
+        return []
 
+
+def _cache_live_result(item: Dict):
+    try:
         question_data = {
-            'question_id': result.get('question_id'),
-            'title': result.get('title', ''),
-            'body': result.get('body', ''),
-            'tags': result.get('tags', []),
-            'score': result.get('score', 0),
-            'view_count': result.get('view_count', 0),
-            'answer_count': result.get('answer_count', 0),
-            'creation_date': 0,
-            'link': result.get('link', ''),
-            'is_answered': result.get('is_answered', False)
+            'question_id': item.get('question_id'),
+            'title': item.get('title', ''),
+            'body': item.get('body', ''),
+            'tags': item.get('tags', []),
+            'score': item.get('score', 0),
+            'view_count': item.get('view_count', 0),
+            'answer_count': item.get('answer_count', 0),
+            'creation_date': item.get('creation_date', 0),
+            'link': item.get('link', ''),
+            'is_answered': item.get('is_answered', False)
         }
         
         db.insert_question(question_data)
         
-
         indexer.index_question(
             question_data['question_id'],
             question_data['title'],
@@ -319,17 +271,25 @@ def _cache_live_result(result: Dict):
             question_data['tags']
         )
         
-        print(f"Cached live result: {question_data['question_id']}")
+        print(f"✓ Cached question {question_data['question_id']} to local database")
     
     except Exception as e:
-        print(f"Error caching live result: {e}")
+        print(f"Warning: Could not cache result: {e}")
 
 
 @app.route('/', methods=['GET'])
 def index():
     docs = {
         'name': 'SwaRAG - Stack Overflow RAG System',
-        'version': '1.0.0',
+        'version': '2.1.0',
+        'description': 'RAG system with Inverted Index + BM25 Ranking + Live Assist Fallback',
+        'algorithms': ['Inverted Index', 'Query Optimization', 'BM25 Ranking', 'RAG Integration', 'Live Assist (Fallback)'],
+        'features': [
+            'Local search with BM25 ranking',
+            'Automatic fallback to Stack Overflow API when no local results',
+            'Live results are cached for future queries',
+            'AI-powered answer generation with RAG'
+        ],
         'endpoints': {
             '/health': {
                 'method': 'GET',
@@ -337,42 +297,26 @@ def index():
             },
             '/search': {
                 'method': 'POST',
-                'description': 'Search without RAG (returns ranked results only)',
+                'description': 'Search using Inverted Index + BM25 (returns ranked results)',
                 'body': {
                     'query': 'Your question here',
-                    'max_results': 10,
-                    'use_live_assist': True
+                    'max_results': 10
                 }
             },
             '/search_with_rag': {
                 'method': 'POST',
-                'description': 'Search with RAG (returns generated answer + ranked results)',
+                'description': 'Search with RAG (returns AI-generated answer + ranked results)',
                 'body': {
                     'query': 'Your question here',
-                    'max_results': 10,
-                    'use_live_assist': True
+                    'max_results': 10
                 }
             },
             '/download': {
                 'method': 'POST',
-                'description': 'Download Stack Overflow data and build index',
+                'description': 'Download Stack Overflow data and build inverted index',
                 'body': {
-                    'tags': ['spring-boot', 'react', 'django', 'node.js'],
+                    'tags': ['python', 'flask', 'django'],
                     'max_pages': 5
-                }
-            },
-            '/query_optimize': {
-                'method': 'POST',
-                'description': 'Test query optimization algorithms',
-                'body': {
-                    'query': 'Your query here'
-                }
-            },
-            '/phrase_search': {
-                'method': 'POST',
-                'description': 'Search for exact phrases using positional index',
-                'body': {
-                    'phrase': 'Your phrase here'
                 }
             },
             '/stats': {
@@ -386,10 +330,6 @@ def index():
 
 
 if __name__ == '__main__':
-    print("Starting SwaRAG API Server...")
-    print(f"API Key configured: {STACK_API_KEY[:10]}...")
-    print(f"Client ID: {CLIENT_ID}")
-    print(f"Database: {DB_PATH}")
-    print("\nEndpoints available at http://localhost:5000")
+    print("Endpoints available at http://localhost:5000")
     
     app.run(debug=True, host='0.0.0.0', port=5000)
