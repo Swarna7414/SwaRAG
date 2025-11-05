@@ -102,14 +102,13 @@ HTML_TEMPLATE = """
         
         .table-item:hover {
             background: #e9ecef;
-            border-left-color: #667eea;
             transform: translateX(5px);
         }
         
         .table-item.active {
             background: #667eea;
             color: white;
-            border-left-color: #764ba2;
+            # border-left-color: #764ba2;
         }
         
         .table-name {
@@ -140,7 +139,7 @@ HTML_TEMPLATE = """
             background: white;
             padding: 20px;
             border-radius: 10px;
-            border-left: 4px solid #667eea;
+            # border-left: 4px solid #667eea;
         }
         
         .stat-card h4 {
@@ -416,7 +415,7 @@ HTML_TEMPLATE = """
             document.getElementById('sqlQuery').value = query;
             executeQuery();
             
-            // Highlight active table
+            
             document.querySelectorAll('.table-item').forEach(item => {
                 item.classList.remove('active');
             });
@@ -497,17 +496,17 @@ HTML_TEMPLATE = """
                 columns.forEach(col => {
                     let value = row[col];
                     
-                    // Format Unix timestamps (creation_date, last_activity_date, etc.)
+                    
                     if ((col.includes('date') || col.includes('_date')) && 
                         typeof value === 'number' && value > 1000000000 && value < 9999999999) {
                         const date = new Date(value * 1000);
-                        value = `${date.toLocaleString()} <br><small style="color:#999">(${value})</small>`;
+                        value = date.toLocaleString();
                     }
-                    // Truncate long strings
+                    
                     else if (typeof value === 'string' && value.length > 200) {
                         value = value.substring(0, 200) + '...';
                     }
-                    // Show NULL
+                    
                     else if (value === null) {
                         value = '<i style="color:#999">NULL</i>';
                     }
@@ -646,6 +645,6 @@ if __name__ == '__main__':
     print("SwaRAG Database Console created by Swarna\n")
     print(" Starting web server...\n")
     print(f"Database: {os.path.abspath(DB_PATH)}\n")
-    print("Access the console at: http://localhost:8080/  \n")
+    print("Click here for the Console: http://localhost:8080/  \n")
     
     app.run(debug=True, host='0.0.0.0', port=8080)
