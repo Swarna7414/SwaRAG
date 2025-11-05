@@ -140,7 +140,6 @@ HTML_TEMPLATE = """
             background: white;
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             border-left: 4px solid #667eea;
         }
         
@@ -322,7 +321,7 @@ HTML_TEMPLATE = """
 <body>
     <div class="header">
         <div>
-            <h1>SwaRAG Database Console created by Swarna</h1>
+            <h1>SwaRAG Database Console</h1>
         </div>
         <button class="header-btn" onclick="window.location.href='http://localhost:5000'">SwaRAG</button>
     </div>
@@ -453,8 +452,8 @@ HTML_TEMPLATE = """
                 
                 if (data.error) {
                     document.getElementById('results').innerHTML = `
-                        <div class="error">
-                            <strong>Error:</strong> ${data.error}
+                        <div style="color:#dc3545; padding:15px; font-weight:500;">
+                            Error: ${data.error}
                         </div>
                     `;
                 } else {
@@ -465,8 +464,8 @@ HTML_TEMPLATE = """
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('resultsPanel').style.display = 'block';
                 document.getElementById('results').innerHTML = `
-                    <div class="error">
-                        <strong>Error:</strong> ${error.message}
+                    <div style="color:#dc3545; padding:15px; font-weight:500;">
+                        Error: ${error.message}
                     </div>
                 `;
             });
@@ -476,7 +475,7 @@ HTML_TEMPLATE = """
             const resultsDiv = document.getElementById('results');
             
             if (data.rows.length === 0) {
-                resultsDiv.innerHTML = '<div class="success">Query executed successfully. No rows returned.</div>';
+                resultsDiv.innerHTML = '<div style="color:#999; padding:15px;">No rows returned.</div>';
                 return;
             }
             
@@ -484,9 +483,6 @@ HTML_TEMPLATE = """
             const rows = data.rows;
             
             let html = `
-                <div class="success">
-                    Query executed successfully. ${rows.length} row(s) returned.
-                </div>
                 <table>
                     <thead>
                         <tr>
@@ -500,12 +496,22 @@ HTML_TEMPLATE = """
                 html += '<tr>';
                 columns.forEach(col => {
                     let value = row[col];
-                    if (typeof value === 'string' && value.length > 200) {
+                    
+                    // Format Unix timestamps (creation_date, last_activity_date, etc.)
+                    if ((col.includes('date') || col.includes('_date')) && 
+                        typeof value === 'number' && value > 1000000000 && value < 9999999999) {
+                        const date = new Date(value * 1000);
+                        value = `${date.toLocaleString()} <br><small style="color:#999">(${value})</small>`;
+                    }
+                    // Truncate long strings
+                    else if (typeof value === 'string' && value.length > 200) {
                         value = value.substring(0, 200) + '...';
                     }
-                    if (value === null) {
+                    // Show NULL
+                    else if (value === null) {
                         value = '<i style="color:#999">NULL</i>';
                     }
+                    
                     html += `<td>${value}</td>`;
                 });
                 html += '</tr>';

@@ -1,16 +1,3 @@
-"""
-SwaRAG - Stack Overflow RAG System
-Main entry point for the application
-
-This system provides:
-1. Stack Overflow Q&A download and indexing
-2. Query optimization using algorithms (Boolean retrieval, positional index, biword index)
-3. BM25 ranking for relevance scoring
-4. Live Assist feature for real-time API queries
-5. RAG (Retrieval-Augmented Generation) for answer generation
-6. API endpoints for search (with and without RAG)
-"""
-
 import sys
 import argparse
 from data.database import Database
@@ -22,14 +9,14 @@ from data.stackoverflow_downloader import StackOverflowDownloader
 import json
 
 
-# Configuration
+
 STACK_API_KEY = "rl_fGs2ccsxwAxAuDAQ3EjWyXknM"
 CLIENT_ID = "35343"
 DB_PATH = "stackoverflow.db"
 
 
 def download_and_index(tags, max_pages=5):
-    """Download Stack Overflow data and build index"""
+    
     print("=" * 80)
     print("STEP 1: Downloading Stack Overflow Q&A Data")
     print("=" * 80)
@@ -37,18 +24,18 @@ def download_and_index(tags, max_pages=5):
     db = Database(DB_PATH)
     downloader = StackOverflowDownloader(api_key=STACK_API_KEY, client_id=CLIENT_ID)
     
-    # Download data
+    
     downloader.download_and_store(db, tags, max_pages_per_tag=max_pages)
     
     print("\n" + "=" * 80)
     print("STEP 2: Building Inverted Index, Biword Index, and Positional Index")
     print("=" * 80)
     
-    # Build index
+    
     text_processor = TextProcessor()
     indexer = Indexer(db, text_processor)
     
-    # Get all questions
+    
     conn = db.get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM questions")
@@ -63,10 +50,10 @@ def download_and_index(tags, max_pages=5):
         body = q_dict['body']
         tags_json = json.loads(q_dict.get('tags', '[]'))
         
-        # Index question
+        
         indexer.index_question(question_id, title, body, tags_json)
         
-        # Index answers
+        
         answers = db.get_answers(question_id)
         for answer in answers:
             answer_id = answer['answer_id']
@@ -92,7 +79,6 @@ def search_local(query, max_results=10):
     text_processor = TextProcessor()
     bm25_ranker = BM25Ranker(db, text_processor)
     
-    # Search and rank
     results = bm25_ranker.search_and_rank(query, max_results=max_results)
     
     print(f"\nFound {len(results)} results:\n")
@@ -125,7 +111,6 @@ def search_with_rag(query, max_results=10):
     bm25_ranker = BM25Ranker(db, text_processor)
     rag = RAGIntegration(STACK_API_KEY)
     
-    # Search and rank
     results = bm25_ranker.search_and_rank(query, max_results=max_results)
     
     print(f"\nFound {len(results)} results from local index")
@@ -135,7 +120,6 @@ def search_with_rag(query, max_results=10):
         print("GENERATING ANSWER USING RAG...")
         print("-" * 80)
         
-        # Generate answer
         rag_result = rag.generate_answer(query, results)
         
         print("\n**Generated Answer:**\n")
@@ -161,12 +145,10 @@ def search_with_live_assist(query, max_results=10):
     bm25_ranker = BM25Ranker(db, text_processor)
     live_assist = LiveAssist(STACK_API_KEY)
     
-    # Search local
     local_results = bm25_ranker.search_and_rank(query, max_results=max_results)
     
     print(f"\nLocal results: {len(local_results)}")
     
-    # Check if we should use live assist
     should_use_live = live_assist.should_use_live_assist(local_results)
     
     if should_use_live:
@@ -193,7 +175,6 @@ def search_with_live_assist(query, max_results=10):
 
 
 def show_stats():
-    """Show database statistics"""
     print("\n" + "=" * 80)
     print("DATABASE STATISTICS")
     print("=" * 80)
@@ -212,7 +193,6 @@ def show_stats():
 
 
 def interactive_mode():
-    """Interactive command-line interface"""
     print("\n" + "=" * 80)
     print("SwaRAG - Interactive Mode")
     print("=" * 80)
@@ -271,8 +251,8 @@ def main():
     parser.add_argument('--download', action='store_true',
                        help='Download Stack Overflow data and build index')
     parser.add_argument('--tags', nargs='+', 
-                       default=['spring-boot', 'react', 'django', 'node.js'],
-                       help='Tags to download (default: spring-boot react django node.js)')
+                       default=['spring-boot', 'react', 'django', 'node.js', 'flask'],
+                       help='Tags to download (default: spring-boot react django node.js flask)')
     parser.add_argument('--max-pages', type=int, default=5,
                        help='Maximum pages per tag to download (default: 5)')
     
@@ -294,7 +274,6 @@ def main():
     
     args = parser.parse_args()
     
-    # Handle commands
     if args.download:
         download_and_index(args.tags, args.max_pages)
     
@@ -324,4 +303,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

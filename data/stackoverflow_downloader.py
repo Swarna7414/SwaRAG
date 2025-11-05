@@ -52,20 +52,27 @@ class StackOverflowDownloader:
             return None
     
     def download_questions_by_tags(self, tags: List[str], max_pages: int = 10, 
-                                   pagesize: int = 100) -> List[Dict]:
+                                   pagesize: int = 100, max_questions_per_tag: int = None) -> List[Dict]:
         questions = []
         
         for tag in tags:
             print(f"Downloading questions for tag: {tag}")
+            tag_questions = []
             
             for page in range(1, max_pages + 1):
+                if max_questions_per_tag and len(tag_questions) >= max_questions_per_tag:
+                    print(f"  Reached limit of {max_questions_per_tag} questions for {tag}")
+                    break
+                
                 params = {
                     'page': page,
                     'pagesize': pagesize,
                     'order': 'desc',
-                    'sort': 'votes',
+                    'sort': 'creation',
                     'tagged': tag,
-                    'filter': '!9_bDDxJY5'  # Include body
+                    'site': 'stackoverflow',
+                    'filter': 'withbody',
+                    'min': 1
                 }
                 
                 data = self._make_request('questions', params)
@@ -74,14 +81,23 @@ class StackOverflowDownloader:
                     break
                 
                 items = data['items']
-                print(f"  Page {page}: Retrieved {len(items)} questions")
                 
-                questions.extend(items)
+                answered_items = [q for q in items if q.get('answer_count', 0) > 0]
+                
+                if max_questions_per_tag:
+                    remaining = max_questions_per_tag - len(tag_questions)
+                    answered_items = answered_items[:remaining]
+                
+                print(f"  Page {page}: Retrieved {len(items)} questions ({len(answered_items)} answered)")
+                
+                tag_questions.extend(answered_items)
 
-                if not data.get('has_more', False):
+                if not data.get('has_more', False) or (max_questions_per_tag and len(tag_questions) >= max_questions_per_tag):
                     break
 
                 time.sleep(0.5)
+            
+            questions.extend(tag_questions)
         
         print(f"Total questions downloaded: {len(questions)}")
         return questions
@@ -101,7 +117,8 @@ class StackOverflowDownloader:
             params = {
                 'order': 'desc',
                 'sort': 'votes',
-                'filter': '!9_bDDxJY5'
+                'filter': 'withbody',
+                'site': 'stackoverflow'
             }
             
             data = self._make_request(f'questions/{question_ids_str}/answers', params)
@@ -132,25 +149,29 @@ class StackOverflowDownloader:
             'order': 'desc',
             'sort': 'relevance',
             'q': query,
-            'filter': '!9_bDDxJY5'  # Include body
+            'site': 'stackoverflow',
+            'filter': 'withbody'
         }
         
         data = self._make_request('search/advanced', params)
         
         if data and 'items' in data:
-            results = data['items']
-            print(f"Live search found {len(results)} results")
+            all_items = data['items']
+            results = [q for q in all_items if q.get('answer_count', 0) > 0]
+            print(f"Live search found {len(results)} answered results (from {len(all_items)} total)")
         
         return results
     
     def download_and_store(self, db: Database, tags: List[str], 
-                          max_pages_per_tag: int = 10):
+                          max_pages_per_tag: int = 10, max_questions_per_tag: int = None):
         print("Starting Stack Overflow data download...")
         print(f"Tags: {tags}")
         print(f"Max pages per tag: {max_pages_per_tag}")
+        if max_questions_per_tag:
+            print(f"Max questions per tag: {max_questions_per_tag}")
         
-        # Download questions
-        questions = self.download_questions_by_tags(tags, max_pages=max_pages_per_tag)
+        questions = self.download_questions_by_tags(tags, max_pages=max_pages_per_tag, 
+                                                    max_questions_per_tag=max_questions_per_tag)
         
         if not questions:
             print("No questions downloaded")
@@ -164,10 +185,17 @@ class StackOverflowDownloader:
 
         print("Storing data in database...")
         
+        stored_questions = 0
+        stored_answers = 0
+        skipped_questions = 0
+        
         for question in questions:
             q_id = question['question_id']
+
+            if q_id not in answers_by_question or len(answers_by_question[q_id]) == 0:
+                skipped_questions += 1
+                continue
             
-            # Store question
             question_data = {
                 'question_id': q_id,
                 'title': question.get('title', ''),
@@ -182,21 +210,21 @@ class StackOverflowDownloader:
             }
             
             db.insert_question(question_data)
-            
-
-            if q_id in answers_by_question:
-                for answer in answers_by_question[q_id]:
-                    answer_data = {
-                        'answer_id': answer['answer_id'],
-                        'question_id': q_id,
-                        'body': answer.get('body', ''),
-                        'score': answer.get('score', 0),
-                        'is_accepted': answer.get('is_accepted', False),
-                        'creation_date': answer.get('creation_date', 0)
-                    }
-                    
-                    db.insert_answer(answer_data)
+            stored_questions += 1
         
-        print(f"Successfully stored {len(questions)} questions and their answers")
+            for answer in answers_by_question[q_id]:
+                answer_data = {
+                    'answer_id': answer['answer_id'],
+                    'question_id': q_id,
+                    'body': answer.get('body', ''),
+                    'score': answer.get('score', 0),
+                    'is_accepted': answer.get('is_accepted', False),
+                    'creation_date': answer.get('creation_date', 0)
+                }
+                db.insert_answer(answer_data)
+                stored_answers += 1
+        
+        print(f"Successfully stored {stored_questions} questions with {stored_answers} answers")
+        print(f"⏭Skipped {skipped_questions} questions (no downloadable answers)")
         print(f"Rate limit remaining: {self.rate_limit_remaining}")
 

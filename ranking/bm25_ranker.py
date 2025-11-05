@@ -103,20 +103,20 @@ class BM25Ranker:
             
             scored_docs.append((doc_id, doc_type, final_score))
         
-        # Sort by score (descending)
+        
         scored_docs.sort(key=lambda x: x[2], reverse=True)
         
         return scored_docs
     
-    def search_and_rank(self, query: str, max_results: int = 20,
-                       use_phrase_matching: bool = True) -> List[Dict]:
-
+    def search_and_rank(self, query: str, max_results: int = 20) -> List[Dict]:
+        """Search and rank using Inverted Index + BM25"""
+        
         query_terms = self.text_processor.process(query)
         
         if not query_terms:
             return []
         
-
+        
         candidate_docs = set()
         
         for term in query_terms:
@@ -124,25 +124,13 @@ class BM25Ranker:
             for doc_id, doc_type, _, _ in postings:
                 candidate_docs.add((doc_id, doc_type))
         
-
-        if use_phrase_matching and len(query_terms) >= 2:
-            from indexing.indexer import QueryProcessor
-            query_processor = QueryProcessor(self.db, self.text_processor)
-            
-
-            biword_docs = query_processor.biword_search(query_terms)
-            
-
-            for doc_id, doc_type in biword_docs:
-                candidate_docs.add((doc_id, doc_type))
-        
         if not candidate_docs:
             return []
         
-
+        
         ranked_docs = self.rank_documents(query_terms, candidate_docs)
         
-
+        
         results = self._collect_results(ranked_docs, max_results)
         
         return results
@@ -152,7 +140,7 @@ class BM25Ranker:
         question_scores = {}
         answer_scores = {}
         
-        # Collect scores
+        
         for doc_id, doc_type, score in ranked_docs:
             if doc_type == 'question':
                 if doc_id not in question_scores:
@@ -187,7 +175,7 @@ class BM25Ranker:
                     'answers': []
                 }
 
-                for answer in answers[:3]:  # Top 3 answers
+                for answer in answers[:3]:
                     result['answers'].append({
                         'answer_id': answer.get('answer_id'),
                         'body': answer.get('body', ''),
@@ -204,4 +192,3 @@ class BM25Ranker:
         self.total_docs = None
         self.avg_doc_length = None
         self.idf_cache = {}
-
