@@ -54,13 +54,13 @@ def search():
         if not query:
             return jsonify({'error': 'Query is required'}), 400
         
-        # Step 1: Search local database
+        
         results = bm25_ranker.search_and_rank(query, max_results=max_results)
         
-        # Step 2: If NO results, fetch from Stack Overflow API (Live Assist)
+        
         used_live = False
         if len(results) == 0:
-            print(f"⚠️ No local results found for query: '{query}'")
+            print(f" No local results found for query: '{query}'")
             results = _fetch_live_results(query, max_results=max_results)
             used_live = True
         
@@ -93,7 +93,7 @@ def search_with_rag():
         
         used_live = False
         if len(search_results) == 0:
-            print(f"⚠️ No local results found for query: '{query}'")
+            print(f" No local results found for query: '{query}'")
             search_results = _fetch_live_results(query, max_results=max_results)
             used_live = True
         
@@ -121,7 +121,7 @@ def download_data():
 
     try:
         data = request.get_json()
-        tags = data.get('tags', ['spring-boot', 'react', 'django', 'node.js', 'flutter'])
+        tags = data.get('tags', ['spring-boot', 'react', 'django', 'node.js', 'flask'])
         max_pages = data.get('max_pages', 5)
         
 
@@ -315,7 +315,7 @@ def index():
                 'method': 'POST',
                 'description': 'Download Stack Overflow data and build inverted index',
                 'body': {
-                    'tags': ['spring-boot', 'react', 'django', 'node.js', 'flutter'],
+                    'tags': ['spring-boot', 'react', 'django', 'node.js', 'flask'],
                     'max_pages': 5
                 }
             },

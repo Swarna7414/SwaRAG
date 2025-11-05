@@ -1,16 +1,3 @@
-"""
-SwaRAG - Stack Overflow RAG System
-Main entry point for the application
-
-This system provides:
-1. Stack Overflow Q&A download and indexing
-2. Query optimization using algorithms (Boolean retrieval, positional index, biword index)
-3. BM25 ranking for relevance scoring
-4. Live Assist feature for real-time API queries
-5. RAG (Retrieval-Augmented Generation) for answer generation
-6. API endpoints for search (with and without RAG)
-"""
-
 import sys
 import argparse
 from data.database import Database
@@ -22,7 +9,7 @@ from data.stackoverflow_downloader import StackOverflowDownloader
 import json
 
 
-# Configuration
+
 STACK_API_KEY = "rl_fGs2ccsxwAxAuDAQ3EjWyXknM"
 CLIENT_ID = "35343"
 DB_PATH = "stackoverflow.db"
@@ -264,8 +251,8 @@ def main():
     parser.add_argument('--download', action='store_true',
                        help='Download Stack Overflow data and build index')
     parser.add_argument('--tags', nargs='+', 
-                       default=['spring-boot', 'react', 'django', 'node.js', 'flutter'],
-                       help='Tags to download (default: spring-boot react django node.js flutter)')
+                       default=['spring-boot', 'react', 'django', 'node.js', 'flask'],
+                       help='Tags to download (default: spring-boot react django node.js flask)')
     parser.add_argument('--max-pages', type=int, default=5,
                        help='Maximum pages per tag to download (default: 5)')
     

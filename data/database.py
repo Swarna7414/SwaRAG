@@ -67,18 +67,6 @@ class Database:
         
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS biword_index (
-                biword TEXT NOT NULL,
-                doc_id INTEGER NOT NULL,
-                doc_type TEXT NOT NULL,
-                frequency INTEGER DEFAULT 1,
-                positions TEXT,
-                PRIMARY KEY (biword, doc_id, doc_type)
-            )
-        """)
-        
-
-        cursor.execute("""
             CREATE TABLE IF NOT EXISTS doc_stats (
                 doc_id INTEGER NOT NULL,
                 doc_type TEXT NOT NULL,
@@ -89,7 +77,6 @@ class Database:
         
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_inverted_term ON inverted_index(term)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_biword_term ON biword_index(biword)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_answers_question ON answers(question_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_questions_tags ON questions(tags)")
         
