@@ -121,7 +121,7 @@ def download_data():
 
     try:
         data = request.get_json()
-        tags = data.get('tags', ['spring-boot', 'react', 'django', 'node.js'])
+        tags = data.get('tags', ['spring-boot', 'react', 'django', 'node.js', 'flutter'])
         max_pages = data.get('max_pages', 5)
         
 
@@ -315,7 +315,7 @@ def index():
                 'method': 'POST',
                 'description': 'Download Stack Overflow data and build inverted index',
                 'body': {
-                    'tags': ['python', 'flask', 'django'],
+                    'tags': ['spring-boot', 'react', 'django', 'node.js', 'flutter'],
                     'max_pages': 5
                 }
             },
