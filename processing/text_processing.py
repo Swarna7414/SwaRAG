@@ -44,7 +44,7 @@ class TextProcessor:
 
         text = re.sub(r'[^\w\s\+\#\-]', ' ', text)
         
-        # Tokenize
+
         tokens = text.split()
         
         return tokens
