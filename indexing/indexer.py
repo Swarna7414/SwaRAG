@@ -80,19 +80,19 @@ class Indexer:
 
 
 class QueryProcessor:
-    """Simplified Query Processor - Only Query Optimization"""
+
     
     def __init__(self, db: Database, text_processor: TextProcessor):
         self.db = db
         self.text_processor = text_processor
     
     def process_query(self, query: str) -> List[str]:
-        """Process query and return optimized terms"""
+
         tokens = self.text_processor.process(query)
         return tokens
     
     def optimize_query_terms(self, terms: List[str]) -> List[str]:
-        """Optimize query terms by ordering them by frequency (rarest first)"""
+
         term_frequencies = []
         
         for term in terms:
@@ -100,7 +100,7 @@ class QueryProcessor:
             frequency = len(postings)
             term_frequencies.append((term, frequency))
         
-        # Sort by frequency (ascending - rarest first for efficient retrieval)
+
         sorted_terms = sorted(term_frequencies, key=lambda x: x[1])
         
         return [term for term, _ in sorted_terms]

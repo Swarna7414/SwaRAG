@@ -58,16 +58,21 @@ class BM25Ranker:
         return score
     
     def score_document(self, query_terms: List[str], doc_id: int, 
-                       doc_type: str) -> float:
+                       doc_type: str, title_boost: float = 5.0) -> float:
         score = 0.0
+        title_score = 0.0
 
         doc_length = self.db.get_doc_stats(doc_id, doc_type)
         if doc_length is None:
             doc_length = 1
         
+        title_terms = []
+        if doc_type == 'question':
+            question = self.db.get_question(doc_id)
+            if question and question.get('title'):
+                title_terms = self.text_processor.process(question['title'])
 
         for term in query_terms:
-
             postings = self.db.get_postings(term)
             tf = 0
             
@@ -78,9 +83,13 @@ class BM25Ranker:
             
             if tf > 0:
                 term_score = self._calculate_term_score(term, tf, doc_length)
-                score += term_score
+                
+                if doc_type == 'question' and term in title_terms:
+                    title_score += term_score * title_boost
+                else:
+                    score += term_score
         
-        return score
+        return score + title_score
     
     def rank_documents(self, query_terms: List[str], 
                       candidate_docs: Set[Tuple[int, str]],
@@ -108,14 +117,12 @@ class BM25Ranker:
         
         return scored_docs
     
-    def search_and_rank(self, query: str, max_results: int = 20) -> List[Dict]:
-        """Search and rank using Inverted Index + BM25"""
+    def search_and_rank(self, query: str, min_score: float = 20.0, tag: str = None) -> List[Dict]:
         
         query_terms = self.text_processor.process(query)
         
         if not query_terms:
             return []
-        
         
         candidate_docs = set()
         
@@ -127,19 +134,16 @@ class BM25Ranker:
         if not candidate_docs:
             return []
         
-        
         ranked_docs = self.rank_documents(query_terms, candidate_docs)
         
-        
-        results = self._collect_results(ranked_docs, max_results)
+        results = self._collect_results(ranked_docs, min_score, tag)
         
         return results
     
     def _collect_results(self, ranked_docs: List[Tuple[int, str, float]], 
-                        max_results: int) -> List[Dict]:
+                        min_score: float, tag: str = None, max_results: int = 5) -> List[Dict]:
         question_scores = {}
         answer_scores = {}
-        
         
         for doc_id, doc_type, score in ranked_docs:
             if doc_type == 'question':
@@ -157,11 +161,21 @@ class BM25Ranker:
         
         results = []
         
-        for question_id, score in sorted_questions[:max_results]:
+        for question_id, score in sorted_questions:
+            if len(results) >= max_results:
+                break
+                
+            if score < min_score:
+                break
+                
             question = self.db.get_question(question_id)
             
             if question:
-
+                if tag:
+                    question_tags = question.get('tags', '').lower()
+                    if tag.lower() not in question_tags:
+                        continue
+                
                 answers = self.db.get_answers(question_id)
                 
                 result = {
