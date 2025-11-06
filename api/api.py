@@ -9,7 +9,6 @@ from processing.text_processing import TextProcessor
 from indexing.indexer import Indexer, QueryProcessor
 from ranking.bm25_ranker import BM25Ranker
 from rag.rag_integration import RAGIntegration
-from data.stackoverflow_downloader import StackOverflowDownloader
 import requests
 
 
@@ -29,7 +28,6 @@ indexer = Indexer(db, text_processor)
 query_processor = QueryProcessor(db, text_processor)
 bm25_ranker = BM25Ranker(db, text_processor)
 rag_integration = RAGIntegration(STACK_API_KEY)
-stackoverflow_downloader = StackOverflowDownloader(api_key=STACK_API_KEY, client_id=CLIENT_ID)
 
 
 @app.route('/health', methods=['GET'])
@@ -46,30 +44,90 @@ def health_check():
 
 @app.route('/search', methods=['POST'])
 def search():
+    """
+    Enhanced BM25 Search with:
+    - Title boosting (5x weight for title matches)
+    - Quality threshold (only shows relevant results)
+    - Tag filtering (search within specific framework)
+    - Automatic Live Assist fallback if no quality local results
+    - Returns 1, 2, or many results based on actual relevance
+    """
     try:
         data = request.get_json()
         query = data.get('query', '')
-        max_results = data.get('max_results', 10)
+        tag = data.get('tag', None)
         
         if not query:
             return jsonify({'error': 'Query is required'}), 400
         
         
-        results = bm25_ranker.search_and_rank(query, max_results=max_results)
+        if tag:
+            print(f"[SEARCH] Query: '{query}' | Tag: '{tag}'")
+        else:
+            print(f"[SEARCH] Query: '{query}' | Tag: All")
         
+
+        results = bm25_ranker.search_and_rank(query, min_score=20.0, tag=tag)
         
+
         used_live = False
         if len(results) == 0:
-            print(f" No local results found for query: '{query}'")
-            results = _fetch_live_results(query, max_results=max_results)
+            print(f"[WARNING] No quality local results for: '{query}' - Using Live Assist")
+            results = _fetch_live_results(query, tag=tag, max_results=10)
             used_live = True
+        else:
+            
+            results_with_answers = sum(1 for r in results if len(r.get('answers', [])) > 0)
+            answer_percentage = (results_with_answers / len(results)) * 100
+            
+            
+            if answer_percentage < 60:
+                print(f"[WARNING] Only {results_with_answers}/{len(results)} results have answers ({answer_percentage:.0f}%) - Using Live Assist")
+                original_results = results  # Keep local results as final fallback
+                results = _fetch_live_results(query, tag=tag, max_results=10)
+                used_live = True
+                
+                
+                if len(results) == 0 or sum(1 for r in results if len(r.get('answers', [])) > 0) == 0:
+                    if tag:
+                        print(f"[FALLBACK] No results with tag, trying WITHOUT tag for broader results...")
+                        results = _fetch_live_results(query, tag=None, max_results=10)
+                    
+                    
+                    if len(results) == 0 or sum(1 for r in results if len(r.get('answers', [])) > 0) == 0:
+                        simplified_query = _simplify_query(query, None)
+                        if simplified_query != query:
+                            print(f"[FALLBACK] Trying simplified query: '{simplified_query}'")
+                            results = _fetch_live_results(simplified_query, tag=None, max_results=10)
+                        
+                        
+                        if len(results) == 0 or sum(1 for r in results if len(r.get('answers', [])) > 0) == 0:
+                            print(f"[FALLBACK] Live Assist exhausted, returning {len(original_results)} local results")
+                            results = original_results
+                            used_live = False
+            else:
+                print(f"[SUCCESS] Found {len(results)} quality local result(s) with answers for: '{query}'")
+        
+        
+        all_answers = []
+        for result in results:
+            for answer in result.get('answers', []):
+                all_answers.append({
+                    'answer_id': answer.get('answer_id'),
+                    'answer_body': answer.get('body', ''),
+                    'answer_score': answer.get('score', 0),
+                    'is_accepted': answer.get('is_accepted', False),
+                    'question_title': result.get('title', ''),
+                    'question_link': result.get('link', ''),
+                    'bm25_score': result.get('bm25_score', 0)
+                })
         
         response = {
             'query': query,
-            'results': results,
-            'total_results': len(results),
-            'source': 'live' if used_live else 'local',
-            'used_live_assist': used_live
+            'answers': all_answers,
+            'total_answers': len(all_answers),
+            'tag': tag if tag else 'all',
+            'source': 'live' if used_live else 'local'
         }
         
         return jsonify(response)
@@ -80,64 +138,64 @@ def search():
 
 @app.route('/search_with_rag', methods=['POST'])
 def search_with_rag():
+    """
+    AI-Powered RAG Search - ALWAYS uses LIVE Stack Overflow data
+    - Fetches fresh data from Stack Overflow API
+    - Analyzes answers using AI (Meta Llama 3 70B)
+    - Generates comprehensive answer based on live data
+    - Tag filtering for specific frameworks
+    """
     try:
         data = request.get_json()
         query = data.get('query', '')
-        max_results = data.get('max_results', 10)
+        tag = data.get('tag', None)
         
         if not query:
             return jsonify({'error': 'Query is required'}), 400
         
         
-        search_results = bm25_ranker.search_and_rank(query, max_results=max_results)
+        if tag:
+            print(f"[RAG] Query: '{query}' | Tag: '{tag}' | Source: LIVE ONLY")
+        else:
+            print(f"[RAG] Query: '{query}' | Tag: All | Source: LIVE ONLY")
         
-        used_live = False
+       
+        print(f"[RAG] Fetching LIVE data from Stack Overflow API...")
+        search_results = _fetch_live_results(query, tag=tag, max_results=10)
+        
         if len(search_results) == 0:
-            print(f" No local results found for query: '{query}'")
-            search_results = _fetch_live_results(query, max_results=max_results)
-            used_live = True
+            
+            if tag:
+                print(f"[RAG] No results with tag, trying broader search...")
+                search_results = _fetch_live_results(query, tag=None, max_results=10)
         
+        if len(search_results) == 0:
+            return jsonify({
+                'question': query,
+                'rag_response': 'No relevant information found on Stack Overflow for this query. Please try rephrasing your question.'
+            })
+        
+        
+        print(f"[RAG] Analyzing {len(search_results)} Stack Overflow answers with AI...")
         rag_result = rag_integration.generate_answer(query, search_results)
         
+        
+        referenced_links = []
+        for i, result in enumerate(search_results[:5], 1):  # Top 5 contexts used
+            if result.get('answers') and len(result.get('answers', [])) > 0:
+                referenced_links.append({
+                    'title': result.get('title', ''),
+                    'link': result.get('link', ''),
+                    'score': result.get('score', 0)
+                })
+        
         response = {
-            'query': query,
-            'generated_answer': rag_result.get('answer', ''),
-            'citations': rag_result.get('citations', []),
-            'search_results': search_results,
-            'source': 'live' if used_live else 'local',
-            'used_live_assist': used_live,
-            'rag_success': rag_result.get('success', False),
-            'total_contexts_used': rag_result.get('retrieved_count', 0)
+            'question': query,
+            'rag_response': rag_result.get('answer', 'Unable to generate answer'),
+            'references': referenced_links
         }
         
         return jsonify(response)
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/download', methods=['POST'])
-def download_data():
-
-    try:
-        data = request.get_json()
-        tags = data.get('tags', ['spring-boot', 'react', 'django', 'node.js', 'flask'])
-        max_pages = data.get('max_pages', 5)
-        
-
-        stackoverflow_downloader.download_and_store(db, tags, max_pages_per_tag=max_pages)
-        
-
-        print("Building index...")
-        _build_index()
-        
-        question_count = db.get_question_count()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Downloaded and indexed data for tags: {tags}',
-            'total_questions': question_count
-        })
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -160,50 +218,37 @@ def get_stats():
         return jsonify({'error': str(e)}), 500
 
 
-def _build_index():
-    conn = db.get_connection()
-    cursor = conn.cursor()
+def _simplify_query(query: str, tag: str = None) -> str:
+    """Simplify query by removing common words and focusing on key terms"""
     
-    cursor.execute("SELECT * FROM questions")
-    questions = cursor.fetchall()
+    stop_words = ['how', 'to', 'the', 'in', 'a', 'an', 'is', 'are', 'can', 'do', 'does', 'what', 'where', 'when', 'why', 'with']
+    words = query.lower().split()
+    key_words = [w for w in words if w not in stop_words and len(w) > 2]
     
-    print(f"Indexing {len(questions)} questions...")
     
-    for i, question in enumerate(questions):
-        q_dict = dict(question)
-        question_id = q_dict['question_id']
-        title = q_dict['title']
-        body = q_dict['body']
-        tags = json.loads(q_dict.get('tags', '[]'))
-        
-        indexer.index_question(question_id, title, body, tags)
-        
-        answers = db.get_answers(question_id)
-        for answer in answers:
-            answer_id = answer['answer_id']
-            answer_body = answer['body']
-            indexer.index_answer(answer_id, question_id, answer_body)
-        
-        if (i + 1) % 100 == 0:
-            print(f"  Indexed {i + 1} questions...")
+    if tag and tag not in ' '.join(key_words):
+        key_words.append(tag.replace('-', ' '))
     
-    print("Indexing complete!")
-    
-    bm25_ranker.clear_cache()
+    simplified = ' '.join(key_words[:5])  # Limit to 5 key terms
+    return simplified if simplified else query
 
 
-def _fetch_live_results(query: str, max_results: int = 5) -> List[Dict]:
-    """Fetch live results from Stack Overflow API when local search fails"""
+def _fetch_live_results(query: str, tag: str = None, max_results: int = 5) -> List[Dict]:
+    
     try:
-        print(f"No local results found. Fetching live data from Stack Overflow API...")
+        print(f"[LIVE ASSIST] Fetching from Stack Overflow API...")
+        
+        
+        search_query = f"{query} [{tag}]" if tag else query
         
         params = {
             'site': 'stackoverflow',
             'order': 'desc',
             'sort': 'relevance',
-            'q': query,
-            'filter': '!9_bDDxJY5',
-            'pagesize': max_results
+            'q': search_query,
+            'filter': 'withbody',
+            'pagesize': max_results,
+            'answers': 1  # Only return questions with at least 1 answer
         }
         
         if STACK_API_KEY:
@@ -220,34 +265,98 @@ def _fetch_live_results(query: str, max_results: int = 5) -> List[Dict]:
             items = data.get('items', [])
             
             results = []
+            total_answers_fetched = 0
+            
             for item in items:
+                question_id = item.get('question_id')
+                
+                
+                answers = _fetch_answers_for_question(question_id)
+                total_answers_fetched += len(answers)
+                
                 result = {
-                    'question_id': item.get('question_id'),
+                    'question_id': question_id,
                     'title': item.get('title', ''),
                     'body': item.get('body', ''),
                     'link': item.get('link', ''),
                     'score': item.get('score', 0),
                     'tags': json.dumps(item.get('tags', [])),
                     'bm25_score': 0.0,
-                    'answers': [],
-                    'source': 'live'
+                    'answers': answers
                 }
                 results.append(result)
                 
-                _cache_live_result(item)
+                _cache_live_result(item, answers)
             
-            print(f"✓ Fetched {len(results)} live results from Stack Overflow")
+            print(f"[LIVE ASSIST] Fetched {len(results)} questions with {total_answers_fetched} total answers from Stack Overflow")
             return results
         else:
-            print(f"Stack Overflow API returned status: {response.status_code}")
+            print(f"[LIVE ASSIST] Stack Overflow API returned status: {response.status_code}")
             return []
     
     except Exception as e:
-        print(f"Error fetching live results: {e}")
+        print(f"[LIVE ASSIST] Error: {e}")
         return []
 
 
-def _cache_live_result(item: Dict):
+def _fetch_answers_for_question(question_id: int) -> List[Dict]:
+    """Fetch answers for a specific question from Stack Overflow API"""
+    try:
+        import time
+        time.sleep(0.2)  
+        
+        params = {
+            'site': 'stackoverflow',
+            'order': 'desc',
+            'sort': 'votes',
+            'filter': 'withbody',
+            'pagesize': 3
+        }
+        
+        if STACK_API_KEY:
+            params['key'] = STACK_API_KEY
+        
+        response = requests.get(
+            f"https://api.stackexchange.com/2.3/questions/{question_id}/answers",
+            params=params,
+            timeout=15
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            
+            if 'error_id' in data:
+                print(f"[LIVE ASSIST] API Error for question {question_id}: {data.get('error_message', 'Unknown error')}")
+                return []
+            
+            items = data.get('items', [])
+            
+            if not items:
+                print(f"[LIVE ASSIST] Question {question_id} has no answers in Stack Overflow")
+            
+            answers = []
+            for item in items:
+                answers.append({
+                    'answer_id': item.get('answer_id'),
+                    'body': item.get('body', ''),
+                    'score': item.get('score', 0),
+                    'is_accepted': item.get('is_accepted', False)
+                })
+            
+            return answers
+        else:
+            print(f"[LIVE ASSIST] Failed to fetch answers for question {question_id}: HTTP {response.status_code}")
+            if response.status_code == 429:
+                print(f"[LIVE ASSIST] RATE LIMITED! Waiting before next request...")
+            return []
+    
+    except Exception as e:
+        print(f"[LIVE ASSIST] Exception fetching answers for question {question_id}: {e}")
+        return []
+
+
+def _cache_live_result(item: Dict, answers: List[Dict] = None):
     try:
         question_data = {
             'question_id': item.get('question_id'),
@@ -271,7 +380,25 @@ def _cache_live_result(item: Dict):
             question_data['tags']
         )
         
-        print(f"✓ Cached question {question_data['question_id']} to local database")
+        
+        if answers:
+            for answer in answers:
+                answer_data = {
+                    'answer_id': answer.get('answer_id'),
+                    'question_id': question_data['question_id'],
+                    'body': answer.get('body', ''),
+                    'score': answer.get('score', 0),
+                    'is_accepted': answer.get('is_accepted', False),
+                    'creation_date': item.get('creation_date', 0)
+                }
+                db.insert_answer(answer_data)
+                indexer.index_answer(
+                    answer_data['answer_id'],
+                    answer_data['question_id'],
+                    answer_data['body']
+                )
+        
+        print(f"[CACHE] Stored question {question_data['question_id']} with {len(answers) if answers else 0} answers")
     
     except Exception as e:
         print(f"Warning: Could not cache result: {e}")
@@ -280,16 +407,42 @@ def _cache_live_result(item: Dict):
 @app.route('/', methods=['GET'])
 def index():
     docs = {
-        'name': 'SwaRAG - Stack Overflow RAG System',
-        'version': '2.1.0',
-        'description': 'RAG system with Inverted Index + BM25 Ranking + Live Assist Fallback',
-        'algorithms': ['Inverted Index', 'Query Optimization', 'BM25 Ranking', 'RAG Integration', 'Live Assist (Fallback)'],
-        'features': [
-            'Local search with BM25 ranking',
-            'Automatic fallback to Stack Overflow API when no local results',
-            'Live results are cached for future queries',
-            'AI-powered answer generation with RAG'
+        'name': 'SwaRAG - Stack Overflow Search Engine with RAG Integration',
+        'version': '3.4.0',
+        'developer': 'Sai Sankar Swarna',
+        'description': 'Enhanced RAG system with Title Boosting + Strict Quality Filtering + Tag Filter + Live Assist',
+        'algorithms': [
+            'Inverted Index', 
+            'Query Optimization', 
+            'BM25 Ranking with Title Boosting (5x)', 
+            'Quality Score Threshold', 
+            'RAG Integration', 
+            'Live Assist (Smart Fallback)'
         ],
+        'features': [
+            'Smart local search with BM25 + title boosting (5x weight)',
+            'STRICT quality threshold filtering (score >= 20.0)',
+            'Tag-based filtering (search within specific framework)',
+            'Automatic fallback to Stack Overflow API when no quality local results',
+            'Live results cached for future queries',
+            'AI-powered answer generation with RAG',
+            'Returns 1, 2, or many results based on actual relevance (no fixed limits)'
+        ],
+        'improvements': {
+            'v3.4.0': [
+                'INCREASED quality threshold from 8.0 to 20.0 for MUCH better results',
+                'Added tag filtering (search within spring-boot, react, django, etc.)',
+                'Now returns ONLY highly relevant results (no more garbage)',
+                'Title matches get 5x higher weight',
+                'Smart Live Assist triggers only when local quality is poor'
+            ],
+            'v3.3.3': [
+                'Title matches now get 5x higher weight for better relevance',
+                'Quality score threshold prevents irrelevant results',
+                'Removed max_results - system shows what is actually relevant',
+                'Enhanced logging for transparency'
+            ]
+        },
         'endpoints': {
             '/health': {
                 'method': 'GET',
@@ -297,31 +450,27 @@ def index():
             },
             '/search': {
                 'method': 'POST',
-                'description': 'Search using Inverted Index + BM25 (returns ranked results)',
+                'description': 'Enhanced BM25 search with title boosting, quality filtering & tag filtering',
                 'body': {
-                    'query': 'Your question here',
-                    'max_results': 10
-                }
+                    'query': 'how to create rest api',
+                    'tag': 'spring-boot'
+                },
+                'note': 'Tag parameter is optional. Returns only relevant results (could be 1, 2, or many). Automatically uses Live Assist if no quality local results.',
+                'available_tags': ['spring-boot', 'react', 'django', 'node.js', 'flask']
             },
             '/search_with_rag': {
                 'method': 'POST',
-                'description': 'Search with RAG (returns AI-generated answer + ranked results)',
+                'description': 'AI-powered search with RAG (generates answer using LLM) + tag filtering',
                 'body': {
-                    'query': 'Your question here',
-                    'max_results': 10
-                }
-            },
-            '/download': {
-                'method': 'POST',
-                'description': 'Download Stack Overflow data and build inverted index',
-                'body': {
-                    'tags': ['spring-boot', 'react', 'django', 'node.js', 'flask'],
-                    'max_pages': 5
-                }
+                    'query': 'how to create rest api',
+                    'tag': 'spring-boot'
+                },
+                'note': 'Tag parameter is optional. Uses enhanced search + LLM for answer generation',
+                'available_tags': ['spring-boot', 'react', 'django', 'node.js', 'flask']
             },
             '/stats': {
                 'method': 'GET',
-                'description': 'Get database and index statistics'
+                'description': 'Database and index statistics'
             }
         }
     }
