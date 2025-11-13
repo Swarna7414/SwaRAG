@@ -1,9 +1,12 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 from typing import Dict, List
 import json
 import os
 import re
+import time
+import sqlite3
+import traceback
 from html.parser import HTMLParser
 
 from data.database import Database
@@ -11,6 +14,7 @@ from processing.text_processing import TextProcessor
 from indexing.indexer import Indexer, QueryProcessor
 from ranking.bm25_ranker import BM25Ranker
 from rag.rag_integration import RAGIntegration
+from data.db_console import HTML_TEMPLATE
 import requests
 
 
@@ -232,7 +236,6 @@ def search_with_rag():
     
     except Exception as e:
         print(f"[RAG] Error: {e}")
-        import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
@@ -549,7 +552,6 @@ def _filter_relevant_results(query: str, results: List[Dict], tag: str = None) -
         result_tags = result.get('tags', '[]')
         try:
             if isinstance(result_tags, str):
-                import json
                 tags_list = json.loads(result_tags)
             else:
                 tags_list = result_tags
@@ -644,7 +646,6 @@ def _fetch_live_results(query: str, tag: str = None, max_results: int = 5) -> Li
 
 def _fetch_answers_for_question(question_id: int) -> List[Dict]:
     try:
-        import time
         time.sleep(0.2)  
         
         params = {
@@ -810,6 +811,123 @@ def _cache_live_result(item: Dict, answers: List[Dict] = None):
     
     except Exception as e:
         print(f"Warning: Could not cache result: {e}")
+
+
+
+def get_db_connection_for_console():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+DB_CONSOLE_HTML = HTML_TEMPLATE.replace("fetch('/api/tables')", "fetch('/db-console/api/tables')")
+DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("fetch('/api/stats')", "fetch('/db-console/api/stats')")
+DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("fetch('/api/query',", "fetch('/db-console/api/query',")
+DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("window.location.href='http://localhost:5000'", "window.location.href='/'")
+DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("onclick=\"window.location.href='http://localhost:5000'\"", "onclick=\"window.location.href='/'\"")
+
+
+@app.route('/db-console', methods=['GET'])
+def db_console():
+    return render_template_string(DB_CONSOLE_HTML)
+
+
+@app.route('/db-console/api/tables', methods=['GET'])
+def db_console_tables():
+    try:
+        conn = get_db_connection_for_console()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        tables = []
+        
+        for row in cursor.fetchall():
+            table_name = row['name']
+            cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
+            count = cursor.fetchone()['count']
+            
+            tables.append({
+                'name': table_name,
+                'count': count
+            })
+        
+        conn.close()
+        return jsonify({'tables': tables})
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/db-console/api/stats', methods=['GET'])
+def db_console_stats():
+    try:
+        conn = get_db_connection_for_console()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) as count FROM questions")
+        question_count = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT COUNT(*) as count FROM answers")
+        answer_count = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT COUNT(DISTINCT term) as count FROM inverted_index")
+        index_terms = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT AVG(doc_length) as avg FROM doc_stats")
+        avg_doc_length = cursor.fetchone()['avg']
+        avg_doc_length = round(avg_doc_length, 2) if avg_doc_length else 0
+        
+        conn.close()
+        return jsonify({
+            'questions': question_count,
+            'answers': answer_count,
+            'index_terms': index_terms,
+            'avg_doc_length': avg_doc_length
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/db-console/api/query', methods=['POST'])
+def db_console_query():
+    try:
+        data = request.get_json()
+        query = data.get('query', '')
+        
+        if not query:
+            return jsonify({'error': 'No query provided'}), 400
+        
+        query_lower = query.lower().strip()
+        if any(keyword in query_lower for keyword in ['drop', 'delete', 'update', 'insert', 'alter', 'create']):
+            return jsonify({'error': 'Only SELECT queries are allowed'}), 400
+        
+        conn = get_db_connection_for_console()
+        cursor = conn.cursor()
+        
+        cursor.execute(query)
+        
+        columns = [description[0] for description in cursor.description] if cursor.description else []
+        
+        rows = []
+        for row in cursor.fetchall():
+            row_dict = {}
+            for i, col in enumerate(columns):
+                value = row[i]
+                if isinstance(value, (list, dict)):
+                    value = json.dumps(value)
+                row_dict[col] = value
+            rows.append(row_dict)
+        
+        conn.close()
+        return jsonify({
+            'columns': columns,
+            'rows': rows,
+            'count': len(rows)
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/', methods=['GET'])
