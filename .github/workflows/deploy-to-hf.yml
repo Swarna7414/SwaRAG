@@ -35,24 +35,39 @@ jobs:
           echo "Calling health endpoint at http://127.0.0.1:7860/health"
           curl --fail http://127.0.0.1:7860/health || echo "Health check failed, but continuing..."
 
-      - name: Deploy to Hugging Face Space (SaiSankarSwarna/SwaRAG)
+      - name: Deploy to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
         run: |
           python << EOF
           from huggingface_hub import HfApi, login
           import os
+          import sys
+          
+          token = os.environ.get('HF_TOKEN')
+          if not token:
+              print("Error: HF_TOKEN not set!")
+              sys.exit(1)
           
           print("Logging in to Hugging Face...")
-          login(token=os.environ['HF_TOKEN'])
+          try:
+              login(token=token, add_to_git_credential=False)
+          except Exception as e:
+              print(f"Login failed: {e}")
+              sys.exit(1)
           
           print("Uploading to Hugging Face Space...")
-          api = HfApi()
-          api.upload_folder(
-              folder_path='.',
-              repo_id='sai582/SwaRAG',
-              repo_type='space',
-              ignore_patterns=['*.db', '__pycache__', '.git', '*.pyc', '.github']
-          )
-          print("Deployment complete!")
+          api = HfApi(token=token)
+          try:
+              api.upload_folder(
+                  folder_path='.',
+                  repo_id='SaiSankarSwarna/SwaRAG',
+                  repo_type='space',
+                  ignore_patterns=['*.db', '__pycache__', '.git', '*.pyc', '.github'],
+                  commit_message='Deploy from GitHub Actions'
+              )
+              print("Deployment complete!")
+          except Exception as e:
+              print(f"Upload failed: {e}")
+              sys.exit(1)
           EOF
