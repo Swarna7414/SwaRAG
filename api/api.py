@@ -315,7 +315,7 @@ def get_stats():
         total_docs = db.get_total_docs()
         avg_doc_length = db.get_avg_doc_length()
         
-        # Get index statistics
+        
         conn = db.get_connection()
         cursor = conn.cursor()
         
@@ -389,7 +389,7 @@ def get_index_terms():
 
 @app.route('/index/term/<term>', methods=['GET'])
 def get_term_details(term):
-    """Get detailed information about a specific index term"""
+    
     try:
         limit = request.args.get('limit', 50, type=int)
         
