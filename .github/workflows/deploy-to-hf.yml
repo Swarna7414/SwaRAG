@@ -63,7 +63,7 @@ jobs:
                   folder_path='.',
                   repo_id='SaiSankarSwarna/SwaRAG',
                   repo_type='space',
-                  ignore_patterns=['*.db', '__pycache__', '.git', '*.pyc', '.github'],
+                  ignore_patterns=['__pycache__', '.git', '*.pyc', '.github', '*.log'],
                   commit_message='Deploy from GitHub Actions'
               )
               print("Deployment complete!")

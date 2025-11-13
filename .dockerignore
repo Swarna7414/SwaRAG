@@ -5,5 +5,4 @@ __pycache__
 .git
 .gitignore
 .env
-*.db
 *.log
