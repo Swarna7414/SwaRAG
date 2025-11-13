@@ -312,10 +312,141 @@ def get_stats():
         total_docs = db.get_total_docs()
         avg_doc_length = db.get_avg_doc_length()
         
+        # Get index statistics
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(DISTINCT term) as count FROM inverted_index")
+        index_terms = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT COUNT(*) as count FROM inverted_index")
+        total_index_entries = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT COUNT(*) as count FROM answers")
+        total_answers = cursor.fetchone()['count']
+        
         return jsonify({
             'total_questions': total_questions,
+            'total_answers': total_answers,
             'total_documents': total_docs,
-            'avg_document_length': avg_doc_length
+            'avg_document_length': avg_doc_length,
+            'index_terms': index_terms,
+            'total_index_entries': total_index_entries
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/index/terms', methods=['GET'])
+def get_index_terms():
+    try:
+        limit = request.args.get('limit', 100, type=int)
+        search = request.args.get('search', '', type=str)
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        if search:
+            query = """
+                SELECT term, COUNT(*) as doc_count, SUM(frequency) as total_frequency
+                FROM inverted_index
+                WHERE term LIKE ?
+                GROUP BY term
+                ORDER BY doc_count DESC
+                LIMIT ?
+            """
+            cursor.execute(query, (f'%{search}%', limit))
+        else:
+            query = """
+                SELECT term, COUNT(*) as doc_count, SUM(frequency) as total_frequency
+                FROM inverted_index
+                GROUP BY term
+                ORDER BY doc_count DESC
+                LIMIT ?
+            """
+            cursor.execute(query, (limit,))
+        
+        terms = []
+        for row in cursor.fetchall():
+            terms.append({
+                'term': row['term'],
+                'document_count': row['doc_count'],
+                'total_frequency': row['total_frequency']
+            })
+        
+        return jsonify({
+            'terms': terms,
+            'count': len(terms)
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/index/term/<term>', methods=['GET'])
+def get_term_details(term):
+    """Get detailed information about a specific index term"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        
+        query = """
+            SELECT doc_id, doc_type, frequency, positions
+            FROM inverted_index
+            WHERE term = ?
+            ORDER BY frequency DESC
+            LIMIT ?
+        """
+        cursor.execute(query, (term, limit))
+        
+        documents = []
+        for row in cursor.fetchall():
+            doc_info = {
+                'doc_id': row['doc_id'],
+                'doc_type': row['doc_type'],
+                'frequency': row['frequency']
+            }
+            
+            
+            if row['doc_type'] == 'question':
+                cursor.execute("SELECT title, score FROM questions WHERE question_id = ?", (row['doc_id'],))
+                doc = cursor.fetchone()
+                if doc:
+                    doc_info['title'] = doc['title']
+                    doc_info['score'] = doc['score']
+            elif row['doc_type'] == 'answer':
+                cursor.execute("SELECT body, score FROM answers WHERE answer_id = ?", (row['doc_id'],))
+                doc = cursor.fetchone()
+                if doc:
+                    doc_info['body_preview'] = doc['body'][:200] if doc['body'] else ''
+                    doc_info['score'] = doc['score']
+            
+            documents.append(doc_info)
+        
+        
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_docs,
+                SUM(frequency) as total_frequency,
+                AVG(frequency) as avg_frequency
+            FROM inverted_index
+            WHERE term = ?
+        """, (term,))
+        stats = cursor.fetchone()
+        
+        return jsonify({
+            'term': term,
+            'statistics': {
+                'total_documents': stats['total_docs'],
+                'total_frequency': stats['total_frequency'],
+                'average_frequency': round(stats['avg_frequency'], 2) if stats['avg_frequency'] else 0
+            },
+            'documents': documents,
+            'count': len(documents)
         })
     
     except Exception as e:
