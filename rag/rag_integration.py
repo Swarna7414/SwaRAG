@@ -1,6 +1,9 @@
 import requests
 import json
+import re
+import time
 from typing import List, Dict, Optional
+from html.parser import HTMLParser
 
 
 class RAGIntegration:
@@ -110,8 +113,6 @@ Provide a comprehensive answer:"""
             return self._fallback_answer(prompt)
     
     def _poll_prediction(self, prediction_id: str, max_attempts: int = 30) -> str:
-
-        import time
         
         for attempt in range(max_attempts):
             try:
@@ -143,8 +144,6 @@ Provide a comprehensive answer:"""
         return "Generation timed out"
     
     def _generate_smart_answer(self, prompt: str) -> str:
-        import re
-        from html.parser import HTMLParser
         
         class HTMLStripper(HTMLParser):
             def __init__(self):

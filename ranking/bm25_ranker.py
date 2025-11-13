@@ -1,4 +1,5 @@
 import math
+import time
 from typing import List, Dict, Tuple, Set
 from collections import defaultdict
 from data.database import Database
@@ -187,8 +188,6 @@ class BM25Ranker:
                 answers = self.db.get_answers(doc_id)
                 pass
 
-        
-        import time
         
         
         top_candidates = sorted(question_scores.items(), key=lambda x: x[1], reverse=True)[:20]
