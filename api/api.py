@@ -333,19 +333,22 @@ def _fetch_live_results(query: str, tag: str = None, max_results: int = 5) -> Li
     
     try:
         print(f"[LIVE ASSIST] Fetching from Stack Overflow API...")
+        print(f"[LIVE ASSIST] Query: '{query}', Tag: '{tag}'")
         
-        
-        search_query = f"{query} [{tag}]" if tag else query
         
         params = {
             'site': 'stackoverflow',
             'order': 'desc',
             'sort': 'relevance',
-            'q': search_query,
+            'q': query,
             'filter': 'withbody',
-            'pagesize': max_results,
+            'pagesize': max_results * 2,  
             'answers': 1
         }
+        
+        
+        if tag:
+            params['tagged'] = tag
         
         if STACK_API_KEY:
             params['key'] = STACK_API_KEY
@@ -452,70 +455,64 @@ def _fetch_answers_for_question(question_id: int) -> List[Dict]:
 
 
 def _fetch_accurate_live_results(query: str, tag: str = None, max_results: int = 5) -> List[Dict]:
-        
+    """SUPER SIMPLE: Just pass the query AS-IS to Stack Overflow API"""
     try:
-        print(f"[ACCURATE LIVE] Fetching 99% accurate results from Stack Overflow API...")
-        
-        search_query = f"{query} [{tag}]" if tag else query
         
         params = {
             'site': 'stackoverflow',
             'order': 'desc',
             'sort': 'votes',
-            'q': search_query,
+            'q': query,  
             'filter': 'withbody',
-            'pagesize': 20,
-            'answers': 1,
-            'accepted': True
+            'pagesize': 10,
+            'key': STACK_API_KEY 
         }
         
-        if STACK_API_KEY:
-            params['key'] = STACK_API_KEY
+        if tag:
+            params['tagged'] = tag
+        
+        print(f"[ACCURATE LIVE] Searching Stack Overflow for: '{query}' (tag: {tag})")
         
         response = requests.get(
             "https://api.stackexchange.com/2.3/search/advanced",
             params=params,
-            timeout=15
+            timeout=20
         )
         
         if response.status_code == 200:
             data = response.json()
             items = data.get('items', [])
             
+            print(f"[ACCURATE LIVE] Got {len(items)} results from Stack Overflow")
+            
+
+            query_words = query.lower().replace('@', '').split()
+            important_words = [w for w in query_words if w not in ['how', 'to', 'use', 'in', 'the', 'a', 'an']]
+            
             results = []
-            total_high_quality_answers = 0
-            
             for item in items:
-                question_id = item.get('question_id')
+                title_body = (item.get('title', '') + ' ' + item.get('body', '')).lower()
                 
-                all_answers = _fetch_answers_for_question(question_id)
                 
-                high_quality_answers = [
-                    ans for ans in all_answers 
-                    if ans.get('is_accepted', False) or ans.get('score', 0) >= 25
-                ]
-                
-                if high_quality_answers:
-                    total_high_quality_answers += len(high_quality_answers)
-                    
-                    result = {
-                        'question_id': question_id,
-                        'title': item.get('title', ''),
-                        'body': item.get('body', ''),
-                        'link': item.get('link', ''),
-                        'score': item.get('score', 0),
-                        'tags': json.dumps(item.get('tags', [])),
-                        'answers': high_quality_answers
-                    }
-                    results.append(result)
-                    
-                    if len(results) >= max_results:
-                        break
+                if any(word in title_body for word in important_words if len(word) > 3):
+                    answers = _fetch_answers_for_question(item.get('question_id'))
+                    if answers:
+                        results.append({
+                            'question_id': item.get('question_id'),
+                            'title': item.get('title', ''),
+                            'body': item.get('body', ''),
+                            'link': item.get('link', ''),
+                            'score': item.get('score', 0),
+                            'tags': json.dumps(item.get('tags', [])),
+                            'answers': answers
+                        })
+                        
+                        if len(results) >= max_results:
+                            break
             
-            print(f"[ACCURATE LIVE] Found {len(results)} questions with {total_high_quality_answers} high-quality answers (99% accuracy)")
             return results
         else:
-            print(f"[ACCURATE LIVE] Stack Overflow API returned status: {response.status_code}")
+            print(f"[ACCURATE LIVE] API returned status {response.status_code}")
             return []
     
     except Exception as e:

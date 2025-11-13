@@ -27,25 +27,53 @@ class TextProcessor:
         }
         return stopwords
     
+    def extract_code_keywords(self, text: str) -> List[str]:
+        """IMPROVEMENT #2: Extract code annotations, class names, and method names (OPTIMIZED)"""
+        if not text or len(text) > 5000:  # Skip very large texts
+            return []
+        
+        keywords = []
+        
+        
+        annotations = re.findall(r'@([A-Za-z_][A-Za-z0-9_]*)', text)[:10]
+        keywords.extend(annotations)
+        
+        
+        camel_case = re.findall(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b', text)[:10]
+        keywords.extend(camel_case)
+        
+        
+        db_keywords = re.findall(r'\b(SELECT|INSERT|UPDATE|DELETE|CREATE|TABLE)\b', text, re.IGNORECASE)[:5]
+        keywords.extend([k.lower() for k in db_keywords])
+        
+        
+        return list(set([k.lower() for k in keywords if len(k) > 1 and len(k) < 30]))[:20]
+    
     def tokenize(self, text: str) -> List[str]:
         if not text:
             return []
         
-
+  
+        code_keywords = self.extract_code_keywords(text)
+        
+    
         text = re.sub(r'<[^>]+>', ' ', text)
         
-
+        
         text = re.sub(r'```.*?```', ' ', text, flags=re.DOTALL)
         text = re.sub(r'`[^`]+`', ' ', text)
         
-
+        
         text = text.lower()
         
-
+        
         text = re.sub(r'[^\w\s\+\#\-]', ' ', text)
         
-
+        
         tokens = text.split()
+        
+        
+        tokens.extend(code_keywords)
         
         return tokens
     
@@ -169,4 +197,3 @@ class TextProcessor:
         replaces = [L + c + R[1:] for L, R in splits if R for c in letters]
         inserts = [L + c + R for L, R in splits for c in letters]
         return set(deletes + transposes + replaces + inserts)
-
