@@ -1,0 +1,62 @@
+name: Deploy Django App to Hugging Face
+
+on:
+  push:
+    branches: ["Live"]
+  workflow_dispatch:
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      
+      - name: Run migrations
+        run: |
+          python manage.py migrate
+
+      
+      - name: Start Django server (background)
+        run: |
+          nohup python manage.py runserver 0.0.0.0:5000 &
+          sleep 8
+
+      
+      - name: Call /health endpoint
+        run: |
+          echo "Calling health endpoint at http://127.0.0.1:5000/health"
+          curl --fail http://127.0.0.1:5000/health
+
+      
+      - name: Install Hugging Face CLI
+        run: |
+          pip install --upgrade huggingface-hub
+
+      
+      - name: Deploy to Hugging Face Space (sai582/SwaRAG)
+        env:
+          HF_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
+        run: |
+          echo "Logging in to Hugging Face..."
+          huggingface-cli login --token "$HF_TOKEN"
+
+          HF_SPACE_REPO="sai582/SwaRAG"
+          echo "Uploading repo to $HF_SPACE_REPO ..."
+          huggingface-cli upload "$HF_SPACE_REPO" . \
+            --repo-type space \
+            --commit-message "Auto deploy from GitHub: $GITHUB_SHA"
