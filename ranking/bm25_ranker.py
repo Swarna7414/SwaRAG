@@ -117,7 +117,38 @@ class BM25Ranker:
         
         return scored_docs
     
+    def _expand_query_semantic(self, query: str) -> List[str]:
+        """IMPROVEMENT #3: Expand query with semantic/related terms (LIMITED)"""
+        query_terms = self.text_processor.process(query)
+        expanded_terms = set(query_terms)
+        
+        
+        semantic_map = {
+            'connect': ['connection'],
+            'databas': ['db', 'sql'],
+            'error': ['exception'],
+            'creat': ['build'],
+            'handl': ['manage'],
+            'api': ['rest'],
+            'authent': ['login', 'security'],
+            'spring': ['springboot'],
+            'react': ['reactjs'],
+            'node': ['nodejs'],
+            'django': ['python'],
+            'flask': ['python'],
+        }
+        
+        
+        for term in query_terms:
+            for key, synonyms in semantic_map.items():
+                if key in term:
+                    expanded_terms.update(synonyms[:2])  # Max 2 synonyms
+                    break
+        
+        return list(expanded_terms)
+    
     def search_and_rank(self, query: str, min_score: float = 20.0, tag: str = None) -> List[Dict]:
+        
         
         query_terms = self.text_processor.process(query)
         
@@ -156,16 +187,56 @@ class BM25Ranker:
                 answers = self.db.get_answers(doc_id)
                 pass
 
-        sorted_questions = sorted(question_scores.items(), 
-                                 key=lambda x: x[1], reverse=True)
+        
+        import time
+        
+        
+        top_candidates = sorted(question_scores.items(), key=lambda x: x[1], reverse=True)[:20]
+        
+        boosted_questions = []
+        for question_id, bm25_score in top_candidates:
+            try:
+                question = self.db.get_question(question_id)
+                if question:
+                    
+                    so_score = question.get('score', 0)
+                    try:
+                        so_score = int(so_score) if so_score else 0
+                    except:
+                        so_score = 0
+                    
+                    so_boost = math.log(max(abs(so_score) + 3, 1)) * 1.5
+                    
+                        
+                    creation_date = question.get('creation_date', 0)
+                    try:
+                        creation_date = int(creation_date) if creation_date else 0
+                    except:
+                        creation_date = 0
+                    
+                    current_time = int(time.time())
+                    if creation_date > 0 and creation_date < current_time:
+                        age_days = (current_time - creation_date) / 86400
+                        recency_boost = 3.0 / (1 + age_days / 365)
+                    else:
+                        recency_boost = 0.1
+                    
+                    final_score = bm25_score + so_boost + recency_boost
+                    boosted_questions.append((question_id, final_score, bm25_score))
+                else:
+                    boosted_questions.append((question_id, bm25_score, bm25_score))
+            except Exception as e:
+                boosted_questions.append((question_id, bm25_score, bm25_score))
+
+        sorted_questions = sorted(boosted_questions, key=lambda x: x[1], reverse=True)
         
         results = []
         
-        for question_id, score in sorted_questions:
+        for question_id, boosted_score, original_bm25 in sorted_questions:
             if len(results) >= max_results:
                 break
                 
-            if score < min_score:
+            if original_bm25 < min_score:
                 break
                 
             question = self.db.get_question(question_id)
@@ -185,7 +256,8 @@ class BM25Ranker:
                     'link': question.get('link', ''),
                     'score': question.get('score', 0),
                     'tags': question.get('tags', ''),
-                    'bm25_score': score,
+                    'bm25_score': round(original_bm25, 2),
+                    'boosted_score': round(boosted_score, 2),
                     'answers': []
                 }
 
