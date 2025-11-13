@@ -4,6 +4,9 @@ from typing import Dict, List
 import json
 import os
 import re
+import time
+import sqlite3
+import traceback
 from html.parser import HTMLParser
 
 from data.database import Database
@@ -233,7 +236,6 @@ def search_with_rag():
     
     except Exception as e:
         print(f"[RAG] Error: {e}")
-        import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
@@ -550,7 +552,6 @@ def _filter_relevant_results(query: str, results: List[Dict], tag: str = None) -
         result_tags = result.get('tags', '[]')
         try:
             if isinstance(result_tags, str):
-                import json
                 tags_list = json.loads(result_tags)
             else:
                 tags_list = result_tags
@@ -645,7 +646,6 @@ def _fetch_live_results(query: str, tag: str = None, max_results: int = 5) -> Li
 
 def _fetch_answers_for_question(question_id: int) -> List[Dict]:
     try:
-        import time
         time.sleep(0.2)  
         
         params = {
@@ -815,8 +815,6 @@ def _cache_live_result(item: Dict, answers: List[Dict] = None):
 
 
 def get_db_connection_for_console():
-    """Get database connection for console (compatible with db_console.py)"""
-    import sqlite3
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -831,13 +829,11 @@ DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("onclick=\"window.location.href='http:
 
 @app.route('/db-console', methods=['GET'])
 def db_console():
-    """Database Console UI - Accessible on Hugging Face"""
     return render_template_string(DB_CONSOLE_HTML)
 
 
 @app.route('/db-console/api/tables', methods=['GET'])
 def db_console_tables():
-    """Get list of database tables"""
     try:
         conn = get_db_connection_for_console()
         cursor = conn.cursor()
@@ -864,7 +860,6 @@ def db_console_tables():
 
 @app.route('/db-console/api/stats', methods=['GET'])
 def db_console_stats():
-    """Get database statistics for console"""
     try:
         conn = get_db_connection_for_console()
         cursor = conn.cursor()
@@ -896,7 +891,6 @@ def db_console_stats():
 
 @app.route('/db-console/api/query', methods=['POST'])
 def db_console_query():
-    """Execute SQL query (SELECT only)"""
     try:
         data = request.get_json()
         query = data.get('query', '')
