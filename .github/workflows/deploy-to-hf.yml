@@ -23,6 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install gunicorn
+          pip install --upgrade huggingface-hub
 
       - name: Start Flask server (background)
         run: |
@@ -34,22 +35,24 @@ jobs:
           echo "Calling health endpoint at http://127.0.0.1:7860/health"
           curl --fail http://127.0.0.1:7860/health || echo "Health check failed, but continuing..."
 
-      - name: Install Hugging Face CLI
-        run: |
-          pip install --upgrade huggingface-hub
-
       - name: Deploy to Hugging Face Space (sai582/SwaRAG)
         env:
           HF_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
         run: |
-          echo "Logging in to Hugging Face..."
-          huggingface-cli login --token "$HF_TOKEN"
-
-          HF_SPACE_REPO="sai582/SwaRAG"
-          echo "Uploading repo to $HF_SPACE_REPO ..."
-          huggingface-cli upload "$HF_SPACE_REPO" . \
-            --repo-type space \
-            --commit-message "Auto deploy from GitHub: $GITHUB_SHA" \
-            --exclude "*.db" \
-            --exclude "__pycache__" \
-            --exclude ".git"
+          python << EOF
+          from huggingface_hub import HfApi, login
+          import os
+          
+          print("Logging in to Hugging Face...")
+          login(token=os.environ['HF_TOKEN'])
+          
+          print("Uploading to Hugging Face Space...")
+          api = HfApi()
+          api.upload_folder(
+              folder_path='.',
+              repo_id='sai582/SwaRAG',
+              repo_type='space',
+              ignore_patterns=['*.db', '__pycache__', '.git', '*.pyc', '.github']
+          )
+          print("Deployment complete!")
+          EOF
