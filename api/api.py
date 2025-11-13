@@ -165,7 +165,6 @@ def search():
 
 @app.route('/search_with_rag', methods=['POST'])
 def search_with_rag():
-
     try:
         data = request.get_json()
         query = data.get('query', '')
@@ -181,14 +180,17 @@ def search_with_rag():
             print(f"[RAG] Query: '{query}' | Tag: All | Source: LIVE ONLY")
         
        
-        print(f"[RAG] Fetching LIVE data from Stack Overflow API...")
-        search_results = _fetch_live_results(query, tag=tag, max_results=10)
+        
+        improved_query = _improve_search_query(query, tag)
+        
+        
+        print(f"[RAG] Step 1: Fetching LIVE data from Stack Overflow API...")
+        search_results = _fetch_live_results(improved_query, tag=tag, max_results=15)
         
         if len(search_results) == 0:
-            
             if tag:
                 print(f"[RAG] No results with tag, trying broader search...")
-                search_results = _fetch_live_results(query, tag=None, max_results=10)
+                search_results = _fetch_live_results(improved_query, tag=None, max_results=15)
         
         if len(search_results) == 0:
             return jsonify({
@@ -197,12 +199,20 @@ def search_with_rag():
             })
         
         
-        print(f"[RAG] Analyzing {len(search_results)} Stack Overflow answers with AI...")
-        rag_result = rag_integration.generate_answer(query, search_results)
+        filtered_results = _filter_relevant_results(query, search_results, tag)
+        
+        if len(filtered_results) == 0:
+            print(f"[RAG] No relevant results after filtering, using top results...")
+            filtered_results = search_results[:5]
+        
+        
+        print(f"[RAG] Step 2: Analyzing {len(filtered_results)} relevant Stack Overflow answers with RAG...")
+        rag_result = rag_integration.generate_answer(query, filtered_results)
+        
         
         
         referenced_links = []
-        for i, result in enumerate(search_results[:5], 1):  # Top 5 contexts used
+        for i, result in enumerate(filtered_results[:5], 1):
             if result.get('answers') and len(result.get('answers', [])) > 0:
                 clean_title = clean_html(result.get('title', ''))
                 
@@ -221,6 +231,9 @@ def search_with_rag():
         return jsonify(response)
     
     except Exception as e:
+        print(f"[RAG] Error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -321,6 +334,112 @@ def _simplify_query(query: str, tag: str = None) -> str:
     
     simplified = ' '.join(key_words[:5])
     return simplified if simplified else query
+
+
+def _improve_search_query(query: str, tag: str = None) -> str:
+    query = query.strip().lower()
+    
+    
+    query = query.replace('springboot', 'spring boot')
+    query = query.replace('spring-boot', 'spring boot')
+    query = query.replace('restapi', 'rest api')
+    query = query.replace('rest-api', 'rest api')
+    
+    
+    important_terms = []
+    words = query.split()
+    
+    
+    tech_keywords = ['api', 'rest', 'spring', 'boot', 'controller', 'endpoint', 'request', 'response', 
+                     'annotation', 'mapping', 'service', 'repository', 'entity', 'model', 'dto']
+    
+    for word in words:
+        if any(keyword in word for keyword in tech_keywords) or len(word) > 4:
+            important_terms.append(word)
+    
+    
+    if important_terms:
+        improved = ' '.join(important_terms[:6])
+    else:
+        improved = query
+    
+    
+    if tag:
+        tag_normalized = tag.replace('-', ' ').lower()
+        if tag_normalized not in improved:
+            improved = f"{improved} {tag_normalized}"
+    
+    return improved.strip()
+
+
+def _filter_relevant_results(query: str, results: List[Dict], tag: str = None) -> List[Dict]:
+    
+    if not results:
+        return []
+    
+    query_lower = query.lower()
+    query_words = set([w for w in query_lower.split() if len(w) > 3])
+    
+    
+    if tag:
+        tag_words = tag.replace('-', ' ').lower().split()
+        query_words.update([w for w in tag_words if len(w) > 2])
+    
+    relevant_results = []
+    
+    for result in results:
+        title = result.get('title', '').lower()
+        body = result.get('body', '').lower()
+        combined_text = f"{title} {body}"
+        
+        
+        answers = result.get('answers', [])
+        if not answers or len(answers) == 0:
+            continue
+        
+        
+        relevance_score = 0
+        
+        
+        title_matches = sum(1 for word in query_words if word in title)
+        relevance_score += title_matches * 3
+        
+        
+        body_matches = sum(1 for word in query_words if word in body)
+        relevance_score += body_matches
+        
+
+        for answer in answers[:2]:  
+            answer_body = answer.get('body', '').lower()
+            answer_matches = sum(1 for word in query_words if word in answer_body)
+            relevance_score += answer_matches * 0.5
+        
+        
+        result_tags = result.get('tags', '[]')
+        try:
+            if isinstance(result_tags, str):
+                import json
+                tags_list = json.loads(result_tags)
+            else:
+                tags_list = result_tags
+            
+            if tag:
+                tag_normalized = tag.replace('-', '').lower()
+                if any(tag_normalized in t.lower().replace('-', '') for t in tags_list):
+                    relevance_score += 5
+        except:
+            pass
+        
+        
+        if relevance_score > 0:
+            result['relevance_score'] = relevance_score
+            relevant_results.append(result)
+    
+    
+    relevant_results.sort(key=lambda x: (x.get('relevance_score', 0), x.get('score', 0)), reverse=True)
+    
+    
+    return relevant_results[:8]
 
 
 def _fetch_live_results(query: str, tag: str = None, max_results: int = 5) -> List[Dict]:
@@ -449,7 +568,7 @@ def _fetch_answers_for_question(question_id: int) -> List[Dict]:
 
 
 def _fetch_accurate_live_results(query: str, tag: str = None, max_results: int = 5) -> List[Dict]:
-    """SUPER SIMPLE: Just pass the query AS-IS to Stack Overflow API"""
+
     try:
         
         params = {
