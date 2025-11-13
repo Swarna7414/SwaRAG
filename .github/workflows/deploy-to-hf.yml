@@ -1,9 +1,9 @@
 name: Deploy Flask App to Hugging Face
 
 on:
-  push:
-    branches: ["Live"]
   workflow_dispatch:
+    branches:
+      - Live
 
 jobs:
   build-test-deploy:
