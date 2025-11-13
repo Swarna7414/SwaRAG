@@ -225,13 +225,6 @@ def search_with_rag():
 
 @app.route('/search_accurate', methods=['POST'])
 def search_accurate():
-    """
-    99% Accurate Search - LIVE ONLY with Strict Quality Filters
-    - Only fetches from Stack Overflow API (no local data)
-    - Only returns ACCEPTED answers OR high-score answers (25+ votes)
-    - Sorts by score and relevance
-    - Guaranteed high quality results
-    """
     try:
         data = request.get_json()
         query = data.get('query', '')
