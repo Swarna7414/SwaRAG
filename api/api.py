@@ -16,12 +16,13 @@ import requests
 
 
 app = Flask(__name__)
-CORS(app)
+
+CORS(app, origins="*", methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 
-STACK_API_KEY = "rl_fGs2ccsxwAxAuDAQ3EjWyXknM"
-CLIENT_ID = "35343"
-DB_PATH = "stackoverflow.db"
+STACK_API_KEY = os.getenv("STACK_API_KEY", "rl_fGs2ccsxwAxAuDAQ3EjWyXknM")
+CLIENT_ID = os.getenv("CLIENT_ID", "35343")
+DB_PATH = os.getenv("DB_PATH", "stackoverflow.db")
 
 
 db = Database(DB_PATH)
