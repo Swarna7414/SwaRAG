@@ -152,8 +152,22 @@ Answer:"""
         
         def strip_html(html):
             stripper = HTMLStripper()
-            stripper.feed(html)
-            return stripper.get_text()
+            try:
+                stripper.feed(html)
+                text = stripper.get_text()
+            except:
+                text = html
+            
+            
+            text = re.sub(r'<[^>]+>', '', text)
+            
+            
+            text = re.sub(r'\s+', ' ', text)
+            
+            
+            text = text.replace('\n', ' ').replace('\r', '').replace('\t', ' ')
+            
+            return text.strip()
         
         contexts_section = prompt.split("Retrieved Stack Overflow Contexts:")[1].split("Instructions:")[0]
         
@@ -166,11 +180,18 @@ Answer:"""
         for block in context_blocks[1:]:
             if "Answer:" in block:
                 answer_text = block.split("Answer:")[1].split("Link:")[0].strip()
-                answer_clean = strip_html(answer_text)
+                
                 
                 code_blocks = re.findall(r'<code>(.*?)</code>', answer_text, re.DOTALL)
-                code_examples.extend(code_blocks[:2])
+                for code in code_blocks[:2]:
+                    cleaned_code = strip_html(code).strip()
+                    if cleaned_code and len(cleaned_code) < 500:
+                        code_examples.append(cleaned_code)
                 
+               
+                answer_clean = strip_html(answer_text)
+                
+               
                 sentences = answer_clean.split('.')
                 for sent in sentences:
                     sent = sent.strip()
@@ -183,21 +204,20 @@ Answer:"""
         query = prompt.split("User Question:")[1].split("Retrieved")[0].strip()
         
         answer_parts = []
-        answer_parts.append(f"Based on the Stack Overflow community's expertise, here's a comprehensive answer to your question:\n")
+        answer_parts.append("Based on the Stack Overflow community's expertise, here's a comprehensive answer to your question:")
         
         if key_points:
-            answer_parts.append("\n**Key Points:**")
+            answer_parts.append("\n\n**Key Points:**")
             for i, point in enumerate(list(key_points)[:4], 1):
                 answer_parts.append(f"\n{i}. {point}.")
 
         if code_examples:
             answer_parts.append("\n\n**Example Implementation:**")
             code = code_examples[0].strip()
-            if len(code) < 500:
-                answer_parts.append(f"\n```\n{code}\n```")
+            answer_parts.append(f"\n```\n{code}\n```")
         
         answer_parts.append("\n\n**Summary:**")
-        answer_parts.append(f"\nThe Stack Overflow community recommends addressing {query} by following the best practices outlined above. ")
+        answer_parts.append(f"\nThe Stack Overflow community recommends addressing '{query}' by following the best practices outlined above. ")
         answer_parts.append("These solutions have been tested and validated by developers in production environments.")
         
         return ''.join(answer_parts)
@@ -309,4 +329,3 @@ class LiveAssist:
             print(f"Error fetching live results: {e}")
         
         return []
-
