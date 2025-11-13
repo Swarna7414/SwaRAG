@@ -35,7 +35,7 @@ jobs:
           echo "Calling health endpoint at http://127.0.0.1:7860/health"
           curl --fail http://127.0.0.1:7860/health || echo "Health check failed, but continuing..."
 
-      - name: Deploy to Hugging Face Space (sai582/SwaRAG)
+      - name: Deploy to Hugging Face Space (SaiSankarSwarna/SwaRAG)
         env:
           HF_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
         run: |
