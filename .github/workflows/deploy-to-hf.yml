@@ -35,6 +35,53 @@ jobs:
           echo "Calling health endpoint at http://127.0.0.1:7860/health"
           curl --fail http://127.0.0.1:7860/health || echo "Health check failed, but continuing..."
 
+      - name: Verify database before deployment
+        run: |
+          python << EOF
+          import sqlite3
+          import os
+          
+          db_path = 'stackoverflow.db'
+          if os.path.exists(db_path):
+              db_size = os.path.getsize(db_path)
+              print(f"Database file found: {db_path} ({db_size / (1024*1024):.2f} MB)")
+              
+              try:
+                  conn = sqlite3.connect(db_path)
+                  cursor = conn.cursor()
+                  
+                  # Check questions count
+                  cursor.execute("SELECT COUNT(*) FROM questions")
+                  question_count = cursor.fetchone()[0]
+                  
+                  # Check answers count
+                  cursor.execute("SELECT COUNT(*) FROM answers")
+                  answer_count = cursor.fetchone()[0]
+                  
+                  # Check index terms
+                  cursor.execute("SELECT COUNT(DISTINCT term) FROM inverted_index")
+                  index_terms = cursor.fetchone()[0]
+                  
+                  conn.close()
+                  
+                  print(f"Database contents:")
+                  print(f"  - Questions: {question_count}")
+                  print(f"  - Answers: {answer_count}")
+                  print(f"  - Index terms: {index_terms}")
+                  
+                  if question_count == 0:
+                      print("WARNING: Database appears to be empty!")
+                      exit(1)
+                  else:
+                      print("✓ Database verified with data")
+              except Exception as e:
+                  print(f"ERROR: Could not verify database: {e}")
+                  exit(1)
+          else:
+              print(f"ERROR: Database file not found: {db_path}")
+              exit(1)
+          EOF
+
       - name: Deploy to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
@@ -59,32 +106,38 @@ jobs:
           print("Uploading to Hugging Face Space...")
           api = HfApi(token=token)
           try:
-              # First, explicitly upload the database file to ensure it's included
-              import os
+              # Verify database exists and has data
               if os.path.exists('stackoverflow.db'):
                   db_size = os.path.getsize('stackoverflow.db')
-                  print(f"Found database file: stackoverflow.db ({db_size / (1024*1024):.2f} MB)")
-                  api.upload_file(
-                      path_or_fileobj='stackoverflow.db',
-                      path_in_repo='stackoverflow.db',
-                      repo_id='SaiSankarSwarna/SwaRAG',
-                      repo_type='space',
-                      commit_message='Upload database file'
-                  )
-                  print("Database file uploaded successfully!")
+                  print(f"Uploading database file: stackoverflow.db ({db_size / (1024*1024):.2f} MB)")
               else:
-                  print("Warning: stackoverflow.db not found in current directory")
+                  print("ERROR: stackoverflow.db not found!")
+                  sys.exit(1)
               
-              # Then upload the rest of the files
+              # First, explicitly upload the database file to ensure it's included
+              print("Uploading database file explicitly...")
+              api.upload_file(
+                  path_or_fileobj='stackoverflow.db',
+                  path_in_repo='stackoverflow.db',
+                  repo_id='SaiSankarSwarna/SwaRAG',
+                  repo_type='space',
+                  commit_message='Force upload database file'
+              )
+              print("✓ Database file uploaded")
+              
+              # Then upload all other files
+              print("Uploading all other files to Hugging Face...")
               api.upload_folder(
                   folder_path='.',
                   repo_id='SaiSankarSwarna/SwaRAG',
                   repo_type='space',
                   ignore_patterns=['__pycache__', '.git', '*.pyc', '.github', '*.log', 'stackoverflow.db'],
-                  commit_message='Deploy from GitHub Actions'
+                  commit_message='Deploy from GitHub Actions - including database'
               )
-              print("Deployment complete!")
+              print("✓ Deployment complete! Database and all files uploaded.")
           except Exception as e:
               print(f"Upload failed: {e}")
+              import traceback
+              traceback.print_exc()
               sys.exit(1)
           EOF
