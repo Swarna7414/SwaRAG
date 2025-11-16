@@ -59,11 +59,28 @@ jobs:
           print("Uploading to Hugging Face Space...")
           api = HfApi(token=token)
           try:
+              # First, explicitly upload the database file to ensure it's included
+              import os
+              if os.path.exists('stackoverflow.db'):
+                  db_size = os.path.getsize('stackoverflow.db')
+                  print(f"Found database file: stackoverflow.db ({db_size / (1024*1024):.2f} MB)")
+                  api.upload_file(
+                      path_or_fileobj='stackoverflow.db',
+                      path_in_repo='stackoverflow.db',
+                      repo_id='SaiSankarSwarna/SwaRAG',
+                      repo_type='space',
+                      commit_message='Upload database file'
+                  )
+                  print("Database file uploaded successfully!")
+              else:
+                  print("Warning: stackoverflow.db not found in current directory")
+              
+              # Then upload the rest of the files
               api.upload_folder(
                   folder_path='.',
                   repo_id='SaiSankarSwarna/SwaRAG',
                   repo_type='space',
-                  ignore_patterns=['__pycache__', '.git', '*.pyc', '.github', '*.log'],
+                  ignore_patterns=['__pycache__', '.git', '*.pyc', '.github', '*.log', 'stackoverflow.db'],
                   commit_message='Deploy from GitHub Actions'
               )
               print("Deployment complete!")
