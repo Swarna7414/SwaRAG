@@ -28,6 +28,29 @@ STACK_API_KEY = os.getenv("STACK_API_KEY", "rl_fGs2ccsxwAxAuDAQ3EjWyXknM")
 CLIENT_ID = os.getenv("CLIENT_ID", "35343")
 DB_PATH = os.getenv("DB_PATH", "stackoverflow.db")
 
+# Verify database file exists and has data on startup
+if not os.path.exists(DB_PATH):
+    print(f"WARNING: Database file not found at {DB_PATH}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Files in current directory: {os.listdir('.')}")
+else:
+    db_size = os.path.getsize(DB_PATH)
+    print(f"✓ Database file found: {DB_PATH} ({db_size / (1024*1024):.2f} MB)")
+    
+    # Quick check to verify database has data
+    try:
+        test_conn = sqlite3.connect(DB_PATH)
+        test_cursor = test_conn.cursor()
+        test_cursor.execute("SELECT COUNT(*) FROM questions")
+        question_count = test_cursor.fetchone()[0]
+        test_conn.close()
+        
+        if question_count == 0:
+            print(f"WARNING: Database file exists but appears to be empty (0 questions)")
+        else:
+            print(f"✓ Database verified: {question_count} questions found")
+    except Exception as e:
+        print(f"WARNING: Could not verify database contents: {e}")
 
 db = Database(DB_PATH)
 text_processor = TextProcessor()
