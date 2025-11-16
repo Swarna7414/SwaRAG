@@ -90,6 +90,7 @@ jobs:
           from huggingface_hub import HfApi, login
           import os
           import sys
+          import time
           
           token = os.environ.get('HF_TOKEN')
           if not token:
@@ -115,13 +116,15 @@ jobs:
                   sys.exit(1)
               
               # First, explicitly upload the database file to ensure it's included
-              print("Uploading database file explicitly...")
+              # Use force=True to ensure it uploads even if Hugging Face thinks it's unchanged
+              print("Uploading database file explicitly (forcing upload)...")
               api.upload_file(
                   path_or_fileobj='stackoverflow.db',
                   path_in_repo='stackoverflow.db',
                   repo_id='SaiSankarSwarna/SwaRAG',
                   repo_type='space',
-                  commit_message='Force upload database file'
+                  commit_message='Force upload database file - ' + str(int(time.time())),
+                  commit_description='Database update'
               )
               print("✓ Database file uploaded")
               
