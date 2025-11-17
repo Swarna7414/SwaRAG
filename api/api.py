@@ -190,7 +190,7 @@ def search():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/search_with_rag', methods=['POST'])
+@app.route('/ragsearch', methods=['POST'])
 def search_with_rag():
     try:
         data = request.get_json()
@@ -263,7 +263,7 @@ def search_with_rag():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/search_accurate', methods=['POST'])
+@app.route('/searchaccurate', methods=['POST'])
 def search_accurate():
     try:
         data = request.get_json()
