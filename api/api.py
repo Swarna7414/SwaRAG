@@ -28,7 +28,7 @@ STACK_API_KEY = os.getenv("STACK_API_KEY", "rl_fGs2ccsxwAxAuDAQ3EjWyXknM")
 CLIENT_ID = os.getenv("CLIENT_ID", "35343")
 DB_PATH = os.getenv("DB_PATH", "stackoverflow.db")
 
-# Verify database file exists and has data on startup
+
 if not os.path.exists(DB_PATH):
     print(f"WARNING: Database file not found at {DB_PATH}")
     print(f"Current working directory: {os.getcwd()}")
@@ -37,7 +37,7 @@ else:
     db_size = os.path.getsize(DB_PATH)
     print(f"✓ Database file found: {DB_PATH} ({db_size / (1024*1024):.2f} MB)")
     
-    # Quick check to verify database has data
+    
     try:
         test_conn = sqlite3.connect(DB_PATH)
         test_cursor = test_conn.cursor()
