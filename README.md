@@ -425,9 +425,3 @@ This project is developed for educational and research purposes.
 ## Author
 
 Sai Sankar Swarna
-
-## Acknowledgments
-
-- Stack Overflow for providing the API and community content
-- Hugging Face for hosting infrastructure
-- The open-source community for various libraries and tools
