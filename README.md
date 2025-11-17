@@ -1,3 +1,13 @@
+---
+title: SwaRAG
+colorFrom: blue
+colorTo: purple
+sdk: docker
+sdk_version: "latest"
+app_file: app.py
+pinned: false
+---
+
 # SwaRAG - Stack Overflow Search Engine with RAG Integration
 
 SwaRAG is an intelligent search engine that combines local indexing, BM25 ranking, and Retrieval Augmented Generation (RAG) to provide comprehensive answers to programming questions. The system indexes Stack Overflow questions and answers locally, uses advanced ranking algorithms to find relevant content, and leverages RAG to synthesize coherent, structured answers from multiple sources.
