@@ -108,7 +108,7 @@ The API layer exposes REST endpoints for search and RAG functionality. Built wit
 **Key Endpoints:**
 - `/health`: System health and database status
 - `/search`: Local BM25 search with optional tag filtering
-- `/search_with_rag`: RAG-powered answer generation
+- `/ragsearch`: RAG-powered answer generation
 - `/stats`: Database and index statistics
 - `/db-console`: Web-based database console UI
 
@@ -175,7 +175,7 @@ The `/search` endpoint uses the local indexed database for fast retrieval. This 
 
 #### RAG Mode
 
-The `/search_with_rag` endpoint combines live Stack Overflow API results with RAG synthesis. This mode:
+The `/ragsearch` endpoint combines live Stack Overflow API results with RAG synthesis. This mode:
 - Fetches current results from Stack Overflow API
 - Filters results for relevance
 - Generates comprehensive answers using RAG
@@ -284,7 +284,7 @@ Searches the local index using BM25 ranking.
 
 ### Search with RAG
 
-**POST** `/search_with_rag`
+**POST** `/ragsearch`
 
 Generates AI-powered answers using RAG.
 
