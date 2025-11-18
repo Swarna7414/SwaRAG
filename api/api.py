@@ -846,8 +846,8 @@ def get_db_connection_for_console():
 DB_CONSOLE_HTML = HTML_TEMPLATE.replace("fetch('/api/tables')", "fetch('/db-console/api/tables')")
 DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("fetch('/api/stats')", "fetch('/db-console/api/stats')")
 DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("fetch('/api/query',", "fetch('/db-console/api/query',")
-DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("window.location.href='http://localhost:5000'", "window.location.href='/'")
-DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("onclick=\"window.location.href='http://localhost:5000'\"", "onclick=\"window.location.href='/'\"")
+DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("window.location.href='http://localhost:5000'", "window.location.href='https://swarna7414.github.io/SwaRAG-FrontEnd/'")
+DB_CONSOLE_HTML = DB_CONSOLE_HTML.replace("onclick=\"window.location.href='http://localhost:5000'\"", "onclick=\"window.location.href='https://swarna7414.github.io/SwaRAG-FrontEnd/'\"")
 
 
 @app.route('/db-console', methods=['GET'])
