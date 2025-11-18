@@ -1,3 +1,13 @@
+---
+title: SwaRAG
+colorFrom: blue
+colorTo: purple
+sdk: docker
+sdk_version: "latest"
+app_file: app.py
+pinned: false
+---
+
 # SwaRAG - Stack Overflow Search Engine with RAG Integration
 
 SwaRAG is an intelligent search engine that combines local indexing, BM25 ranking, and Retrieval Augmented Generation (RAG) to provide comprehensive answers to programming questions. The system indexes Stack Overflow questions and answers locally, uses advanced ranking algorithms to find relevant content, and leverages RAG to synthesize coherent, structured answers from multiple sources.
@@ -98,7 +108,7 @@ The API layer exposes REST endpoints for search and RAG functionality. Built wit
 **Key Endpoints:**
 - `/health`: System health and database status
 - `/search`: Local BM25 search with optional tag filtering
-- `/search_with_rag`: RAG-powered answer generation
+- `/ragsearch`: RAG-powered answer generation
 - `/stats`: Database and index statistics
 - `/db-console`: Web-based database console UI
 
@@ -165,7 +175,7 @@ The `/search` endpoint uses the local indexed database for fast retrieval. This 
 
 #### RAG Mode
 
-The `/search_with_rag` endpoint combines live Stack Overflow API results with RAG synthesis. This mode:
+The `/ragsearch` endpoint combines live Stack Overflow API results with RAG synthesis. This mode:
 - Fetches current results from Stack Overflow API
 - Filters results for relevance
 - Generates comprehensive answers using RAG
@@ -179,64 +189,47 @@ The `/search_with_rag` endpoint combines live Stack Overflow API results with RA
 4. **Query Optimization**: Processes query terms in order of selectivity
 5. **Early Termination**: Stops processing when sufficient high-quality results are found
 
-## Installation and Setup
+## Deployment
 
-### Prerequisites
+SwaRAG is deployed and hosted on Hugging Face Spaces, making it accessible via a web interface and REST API endpoints. The application is fully functional and ready to use without any local setup required.
 
-- Python 3.13 or higher
-- Stack Overflow API key (optional but recommended)
-- SQLite3 (included with Python)
+### Accessing the Application
 
-### Local Development Setup
+The SwaRAG application is available at:
+- **Hugging Face Space**: `https://huggingface.co/spaces/SaiSankarSwarna/SwaRAG`
 
-1. **Clone the repository:**
-```bash
-git clone <repository-url>
-cd SwaRAG
-```
+### Available Services
 
-2. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
+Once deployed, the following services are accessible:
 
-3. **Set environment variables (optional):**
-```bash
-export STACK_API_KEY="your_api_key"
-export CLIENT_ID="your_client_id"
-export DB_PATH="stackoverflow.db"
-```
+1. **REST API Endpoints**: All API endpoints are available at the Hugging Face Space URL
+2. **Database Console**: Web-based UI for browsing the database at `/db-console`
+3. **Health Monitoring**: System health checks at `/health`
+4. **Statistics**: Database and index statistics at `/stats`
 
-4. **Download and index data:**
-```bash
-python main.py --download --tags spring-boot react django node.js flask --max-pages 5
-```
+### Deployment Architecture
 
-This will:
-- Download questions and answers from Stack Overflow
-- Build inverted indexes
-- Calculate document statistics
+The application runs on Hugging Face Spaces infrastructure:
+- **Container**: Docker-based deployment with Python 3.13
+- **Web Server**: Gunicorn with 2 workers for handling concurrent requests
+- **Port**: 7860 (Hugging Face default)
+- **Database**: Pre-populated SQLite database (stackoverflow.db) with indexed content
+- **Auto-deployment**: GitHub Actions workflow for automated deployments from the Live branch
 
-5. **Start the API server:**
-```bash
-python main.py --api
-```
+### Deployment Process
 
-The API will be available at `http://localhost:5000`
+The deployment process includes:
+1. Database verification before deployment to ensure data integrity
+2. Upload of all files including the pre-populated database to Hugging Face
+3. Application startup on port 7860 (Hugging Face default)
+4. Gunicorn serving the Flask application with 2 workers for optimal performance
 
-### Using the Interactive Mode
+### Environment Variables
 
-For testing and exploration:
-```bash
-python main.py --interactive
-```
-
-Commands:
-- `search <query>` - Search local index
-- `rag <query>` - Search with RAG
-- `live <query>` - Search with live assist
-- `stats` - Show statistics
-- `quit` - Exit
+The following environment variables are configured in the Hugging Face Space:
+- `HF_TOKEN`: Hugging Face authentication token for deployment
+- `STACK_API_KEY`: Stack Overflow API key for live search functionality
+- `DB_PATH`: Path to SQLite database (default: stackoverflow.db)
 
 ## API Endpoints
 
@@ -291,7 +284,7 @@ Searches the local index using BM25 ranking.
 
 ### Search with RAG
 
-**POST** `/search_with_rag`
+**POST** `/ragsearch`
 
 Generates AI-powered answers using RAG.
 
@@ -339,27 +332,6 @@ Returns database and index statistics.
 **GET** `/db-console`
 
 Web-based UI for browsing the database, viewing tables, and executing SQL queries.
-
-## Deployment
-
-### Hugging Face Spaces
-
-SwaRAG is deployed on Hugging Face Spaces using Docker. The deployment includes:
-
-1. **Dockerfile**: Multi-stage build with Python 3.13
-2. **GitHub Actions**: Automated deployment workflow
-3. **Database Deployment**: Pre-populated SQLite database included in deployment
-
-**Deployment Process:**
-1. Database is verified before deployment
-2. All files including database are uploaded to Hugging Face
-3. Application runs on port 7860 (Hugging Face default)
-4. Gunicorn serves the Flask application with 2 workers
-
-**Environment Variables:**
-- `HF_TOKEN`: Hugging Face authentication token
-- `STACK_API_KEY`: Stack Overflow API key
-- `DB_PATH`: Path to SQLite database (default: stackoverflow.db)
 
 ## Technical Details
 
@@ -463,10 +435,3 @@ This project is developed for educational and research purposes.
 ## Author
 
 Sai Sankar Swarna
-
-## Acknowledgments
-
-- Stack Overflow for providing the API and community content
-- Hugging Face for hosting infrastructure
-- The open-source community for various libraries and tools
-
