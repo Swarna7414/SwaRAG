@@ -113,7 +113,8 @@ def search():
         
         
         if tag:
-            print(f"[SEARCH] Query: '{query}' | Tag: '{tag}'")
+            tag = _normalize_tag(tag)
+            print(f"[SEARCH] Query: '{query}' | Tag: '{tag}' (normalized)")
         else:
             print(f"[SEARCH] Query: '{query}' | Tag: All")
         
@@ -202,7 +203,8 @@ def search_with_rag():
         
         
         if tag:
-            print(f"[RAG] Query: '{query}' | Tag: '{tag}' | Source: LIVE ONLY")
+            tag = _normalize_tag(tag)
+            print(f"[RAG] Query: '{query}' | Tag: '{tag}' (normalized) | Source: LIVE ONLY")
         else:
             print(f"[RAG] Query: '{query}' | Tag: All | Source: LIVE ONLY")
         
@@ -273,8 +275,10 @@ def search_accurate():
         if not query:
             return jsonify({'error': 'Query is required'}), 400
         
+        
         if tag:
-            print(f"[ACCURATE SEARCH] Query: '{query}' | Tag: '{tag}' | Mode: LIVE ONLY with 99% accuracy filter")
+            tag = _normalize_tag(tag)
+            print(f"[ACCURATE SEARCH] Query: '{query}' | Tag: '{tag}' (normalized) | Mode: LIVE ONLY with 99% accuracy filter")
         else:
             print(f"[ACCURATE SEARCH] Query: '{query}' | Tag: All | Mode: LIVE ONLY with 99% accuracy filter")
         
@@ -477,6 +481,52 @@ def get_term_details(term):
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def _normalize_tag(tag: str) -> str:
+    
+    if not tag:
+        return None
+    
+    tag = tag.lower().strip()
+    
+    
+    tag_map = {
+        
+        'springboot': 'spring-boot',
+        'spring boot': 'spring-boot',
+        'spring_boot': 'spring-boot',
+        'sprigboot': 'spring-boot',  
+        'sprig-boot': 'spring-boot', 
+        'sprig boot': 'spring-boot',  
+        
+        
+        'nodejs': 'node.js',
+        'node js': 'node.js',
+        'node': 'node.js',
+        'node_js': 'node.js',
+        
+        
+        'reactjs': 'react',
+        'react.js': 'react',
+        'react_js': 'react',
+        
+        
+        'django': 'django',
+        
+        
+        'flask': 'flask',
+    }
+    
+    
+    normalized = tag_map.get(tag, tag)
+    
+    
+    if normalized == tag:
+        
+        normalized = tag.replace(' ', '-').replace('_', '-')
+    
+    return normalized
 
 
 def _simplify_query(query: str, tag: str = None) -> str:
