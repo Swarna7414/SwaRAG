@@ -314,10 +314,13 @@ def search_accurate():
                     'is_accepted': answer.get('is_accepted', False),
                     'question_title': clean_title,
                     'question_link': result.get('link', ''),
-                    'question_score': result.get('score', 0)
+                    'question_score': result.get('score', 0),
+                    'relevance_score': result.get('relevance_score', 0),
+                    'title_matches': result.get('title_matches', 0),
+                    'body_matches': result.get('body_matches', 0)
                 })
         
-        print(f"[ACCURATE SEARCH] Returning {len(all_answers)} high-quality answers (99% accuracy)")
+        print(f"[ACCURATE SEARCH] Returning {len(all_answers)} high-quality, highly-relevant answers")
         
         response = {
             'query': query,
@@ -325,8 +328,14 @@ def search_accurate():
             'total_answers': len(all_answers),
             'tag': tag if tag else 'all',
             'source': 'live',
-            'accuracy': '99%',
-            'filters_applied': ['accepted_answers', 'high_score_answers_25+', 'sorted_by_votes']
+            'accuracy': 'high',
+            'filters_applied': [
+                'relevance_sorting',
+                'title_match_weighted_10x',
+                'phrase_matching_bonus',
+                'has_quality_answers',
+                'minimum_match_threshold'
+            ]
         }
         
         return jsonify(response)
@@ -772,24 +781,82 @@ def _fetch_answers_for_question(question_id: int) -> List[Dict]:
         return []
 
 
+def _expand_query_with_context(query: str, tag: str = None) -> List[str]:
+
+    query_lower = query.lower()
+    expanded_terms = []
+    
+    
+    if tag == 'spring-boot':
+        if 'exception' in query_lower or 'error' in query_lower:
+            expanded_terms.extend(['@exceptionhandler', '@controlleradvice', 'responseentity'])
+        if 'jwt' in query_lower or 'auth' in query_lower:
+            expanded_terms.extend(['security', 'token', 'bearer'])
+        if '@requestbody' in query_lower or 'requestbody' in query_lower:
+            expanded_terms.extend(['json', '@postmapping', 'jackson'])
+    
+    elif tag == 'react':
+        if 'state' in query_lower:
+            expanded_terms.extend(['usestate', 'usereducer', 'hook'])
+        if 'render' in query_lower:
+            expanded_terms.extend(['memo', 'usememo', 'usecallback', 'react.memo'])
+        if 'fetch' in query_lower or 'api' in query_lower:
+            expanded_terms.extend(['useeffect', 'axios', 'async'])
+        if 'component' in query_lower and 'mount' in query_lower:
+            expanded_terms.extend(['useeffect', 'componentdidmount'])
+    
+    elif tag == 'node.js':
+        if 'async' in query_lower or 'await' in query_lower:
+            expanded_terms.extend(['promise', 'try', 'catch'])
+        if 'database' in query_lower or 'mongodb' in query_lower:
+            expanded_terms.extend(['mongoose', 'connect', 'connection'])
+    
+    elif tag == 'django':
+        if 'api' in query_lower or 'rest' in query_lower:
+            expanded_terms.extend(['serializer', 'viewset', 'drf'])
+        if 'auth' in query_lower or 'jwt' in query_lower:
+            expanded_terms.extend(['authentication', 'permission', 'token'])
+    
+    elif tag == 'flask':
+        if 'api' in query_lower or 'rest' in query_lower:
+            expanded_terms.extend(['route', '@app.route', 'blueprint'])
+        if 'file' in query_lower and 'upload' in query_lower:
+            expanded_terms.extend(['request.files', 'werkzeug', 'secure_filename'])
+    
+    
+    if 'jwt' in query_lower:
+        expanded_terms.extend(['json web token', 'bearer'])
+    if 'api' in query_lower:
+        expanded_terms.extend(['endpoint', 'rest', 'restful'])
+    
+    return list(set(expanded_terms))  
+
+
 def _fetch_accurate_live_results(query: str, tag: str = None, max_results: int = 5) -> List[Dict]:
 
     try:
         
+        expanded_terms = _expand_query_with_context(query, tag)
+        
+       
+        
         params = {
             'site': 'stackoverflow',
             'order': 'desc',
-            'sort': 'votes',
+            'sort': 'relevance',  
             'q': query,  
             'filter': 'withbody',
-            'pagesize': 10,
-            'key': STACK_API_KEY 
+            'pagesize': 25,  
+            'key': STACK_API_KEY,
+            'answers': 1
         }
         
         if tag:
             params['tagged'] = tag
         
-        print(f"[ACCURATE LIVE] Searching Stack Overflow for: '{query}' (tag: {tag})")
+        print(f"[ACCURATE LIVE] Searching Stack Overflow for: '{query}' (tag: {tag}) - Using RELEVANCE sorting")
+        if expanded_terms:
+            print(f"[ACCURATE LIVE] Expanded with context terms: {expanded_terms[:5]}")
         
         response = requests.get(
             "https://api.stackexchange.com/2.3/search/advanced",
@@ -801,20 +868,125 @@ def _fetch_accurate_live_results(query: str, tag: str = None, max_results: int =
             data = response.json()
             items = data.get('items', [])
             
-            print(f"[ACCURATE LIVE] Got {len(items)} results from Stack Overflow")
+            print(f"[ACCURATE LIVE] Got {len(items)} results from Stack Overflow API")
             
-
+            
             query_words = query.lower().replace('@', '').split()
-            important_words = [w for w in query_words if w not in ['how', 'to', 'use', 'in', 'the', 'a', 'an']]
+            
+            stop_words = {'how', 'to', 'use', 'in', 'the', 'a', 'an', 'is', 'are', 'can', 'do', 'does', 'what', 'when', 'where'}
+            important_words = [w for w in query_words if w not in stop_words and len(w) > 2]
+            
+            
+            all_search_terms = important_words + expanded_terms
+            
+            print(f"[ACCURATE LIVE] Key search terms: {important_words}")
+            
+            
+            scored_results = []
+            for item in items:
+                title = item.get('title', '').lower()
+                body = item.get('body', '').lower()
+                question_score = item.get('score', 0)
+                answer_count = item.get('answer_count', 0)
+                is_answered = item.get('is_answered', False)
+                view_count = item.get('view_count', 0)
+                
+            
+                relevance_score = 0
+                
+                
+                title_matches = sum(1 for word in important_words if word in title)
+                relevance_score += title_matches * 15  
+                
+                
+                body_matches = sum(1 for word in important_words if word in body)
+                relevance_score += body_matches * 1
+                
+                
+                expanded_title_matches = sum(1 for term in expanded_terms if term.lower() in title)
+                expanded_body_matches = sum(1 for term in expanded_terms if term.lower() in body)
+                relevance_score += expanded_title_matches * 8  
+                relevance_score += expanded_body_matches * 2   
+                
+                
+                query_phrase = ' '.join(important_words[:3])  
+                if len(query_phrase) > 5:  
+                    if query_phrase in title:
+                        relevance_score += 25  
+                    elif query_phrase in body:
+                        relevance_score += 8  
+                
+                
+                for i in range(len(important_words) - 1):
+                    two_word_phrase = f"{important_words[i]} {important_words[i+1]}"
+                    if two_word_phrase in title:
+                        relevance_score += 10
+                    elif two_word_phrase in body:
+                        relevance_score += 3
+                
+                
+                if is_answered:
+                    relevance_score += 8  
+                if question_score > 0:
+                    relevance_score += min(question_score / 2, 15)  
+                if answer_count > 1:
+                    relevance_score += min(answer_count * 1.5, 8)  
+                if view_count > 1000:
+                    relevance_score += min(view_count / 1000, 5)  
+                
+                
+                
+                min_threshold = 10  
+                if relevance_score >= min_threshold and (title_matches > 0 or body_matches >= 2 or expanded_title_matches > 0):
+                    scored_results.append({
+                        'item': item,
+                        'relevance_score': relevance_score,
+                        'title_matches': title_matches,
+                        'body_matches': body_matches,
+                        'expanded_matches': expanded_title_matches + expanded_body_matches
+                    })
+            
+            
+            scored_results.sort(key=lambda x: x['relevance_score'], reverse=True)
+            
+            print(f"[ACCURATE LIVE] Scored and ranked {len(scored_results)} relevant results")
+            
             
             results = []
-            for item in items:
-                title_body = (item.get('title', '') + ' ' + item.get('body', '')).lower()
+            for scored_result in scored_results[:max_results * 3]:  
+                item = scored_result['item']
+                
+
+                answers = _fetch_answers_for_question(item.get('question_id'))
                 
                 
-                if any(word in title_body for word in important_words if len(word) > 3):
-                    answers = _fetch_answers_for_question(item.get('question_id'))
-                    if answers:
+                if answers and len(answers) > 0:
+                    
+                    quality_answers = []
+                    accepted_answers = [a for a in answers if a.get('is_accepted', False)]
+                    high_score_answers = [a for a in answers if a.get('score', 0) >= 2]
+                    good_answers = [a for a in answers if a.get('score', 0) >= 1]
+                    
+                    
+                    quality_answers = accepted_answers + high_score_answers + good_answers
+                    
+                    
+                    seen = set()
+                    unique_quality_answers = []
+                    for ans in quality_answers:
+                        ans_id = ans.get('answer_id')
+                        if ans_id not in seen:
+                            seen.add(ans_id)
+                            unique_quality_answers.append(ans)
+                    
+                    if unique_quality_answers:
+                        
+                        final_score = scored_result['relevance_score']
+                        if any(a.get('is_accepted', False) for a in unique_quality_answers):
+                            final_score += 15  
+                        if any(a.get('score', 0) >= 10 for a in unique_quality_answers):
+                            final_score += 10  
+                        
                         results.append({
                             'question_id': item.get('question_id'),
                             'title': item.get('title', ''),
@@ -822,12 +994,21 @@ def _fetch_accurate_live_results(query: str, tag: str = None, max_results: int =
                             'link': item.get('link', ''),
                             'score': item.get('score', 0),
                             'tags': json.dumps(item.get('tags', [])),
-                            'answers': answers
+                            'answers': unique_quality_answers[:3],  
+                            'relevance_score': final_score,
+                            'title_matches': scored_result['title_matches'],
+                            'body_matches': scored_result['body_matches']
                         })
+                        
+                        print(f"[ACCURATE LIVE] ✓ Q{item.get('question_id')}: Score={final_score:.1f} | Title={scored_result['title_matches']} | Body={scored_result['body_matches']} | Expanded={scored_result['expanded_matches']} | Answers={len(unique_quality_answers)}")
                         
                         if len(results) >= max_results:
                             break
             
+                            
+            results.sort(key=lambda x: x['relevance_score'], reverse=True)
+            
+            print(f"[ACCURATE LIVE] Returning {len(results)} high-quality results")
             return results
         else:
             print(f"[ACCURATE LIVE] API returned status {response.status_code}")
@@ -835,6 +1016,7 @@ def _fetch_accurate_live_results(query: str, tag: str = None, max_results: int =
     
     except Exception as e:
         print(f"[ACCURATE LIVE] Error: {e}")
+        traceback.print_exc()
         return []
 
 
@@ -1050,7 +1232,7 @@ def index():
                 'note': 'Tag parameter is optional. Returns only relevant results (could be 1, 2, or many). Automatically uses Live Assist if no quality local results.',
                 'available_tags': ['spring-boot', 'react', 'django', 'node.js', 'flask']
             },
-            '/search_with_rag': {
+            '/ragsearch': {
                 'method': 'POST',
                 'description': 'AI-powered search with RAG (generates answer using LLM) + tag filtering',
                 'body': {
@@ -1058,6 +1240,23 @@ def index():
                     'tag': 'spring-boot'
                 },
                 'note': 'Tag parameter is optional. Uses enhanced search + LLM for answer generation',
+                'available_tags': ['spring-boot', 'react', 'django', 'node.js', 'flask']
+            },
+            '/searchaccurate': {
+                'method': 'POST',
+                'description': 'Ultra-accurate search with Stack Overflow-style relevance ranking',
+                'body': {
+                    'query': 'how to create rest api',
+                    'tag': 'spring-boot'
+                },
+                'features': [
+                    'Relevance-based sorting (not just votes)',
+                    'Title matches weighted 10x higher',
+                    'Phrase matching bonus',
+                    'Quality answer filtering',
+                    'Minimum relevance threshold'
+                ],
+                'note': 'Tag parameter is optional. Returns highly relevant results with quality answers only.',
                 'available_tags': ['spring-boot', 'react', 'django', 'node.js', 'flask']
             },
             '/stats': {
