@@ -17,6 +17,13 @@ from rag.rag_integration import RAGIntegration
 from data.db_console import HTML_TEMPLATE
 import requests
 
+try:
+    from duckduckgo_search import DDGS
+    WEB_SEARCH_AVAILABLE = True
+except ImportError:
+    WEB_SEARCH_AVAILABLE = False
+    print("[WARNING] duckduckgo-search not installed. Install with: pip install duckduckgo-search")
+
 
 
 app = Flask(__name__)
@@ -210,57 +217,211 @@ def search_with_rag():
         
        
         
-        improved_query = _improve_search_query(query, tag)
+
+        original_query = query.strip()
         
+        stop_words = {'how', 'to', 'the', 'a', 'an', 'is', 'are', 'in', 'on', 'at', 'for', 'with', 'by'}
+        important_words = [w for w in original_query.lower().split() if len(w) > 3 and w not in stop_words]
         
-        print(f"[RAG] Step 1: Fetching LIVE data from Stack Overflow API...")
-        search_results = _fetch_live_results(improved_query, tag=tag, max_results=15)
+        if important_words:
+            search_query = ' '.join(important_words)
+        else:
+            search_query = original_query
         
-        if len(search_results) == 0:
-            if tag:
-                print(f"[RAG] No results with tag, trying broader search...")
-                search_results = _fetch_live_results(improved_query, tag=None, max_results=15)
+        if tag:
+            search_query = f"{search_query} {tag}"
         
-        if len(search_results) == 0:
+        print(f"[RAG] Step 1: Searching the INTERNET ONLY...")
+        print(f"[RAG] Original query: '{original_query}'")
+        print(f"[RAG] Important words: {important_words}")
+        print(f"[RAG] Tag: {tag}")
+        print(f"[RAG] Internet search query: '{search_query}'")
+        
+        internet_results = _search_internet(search_query, max_results=20)
+        
+        if len(internet_results) == 0:
             return jsonify({
                 'question': query,
-                'rag_response': 'No relevant information found on Stack Overflow for this query. Please try rephrasing your question.'
+                'rag_response': 'No relevant information found on the internet. Please try rephrasing your question or using different keywords.'
             })
         
+        print(f"[RAG] Found {len(internet_results)} results from internet search")
         
-        filtered_results = _filter_relevant_results(query, search_results, tag)
+        filtered_results = _filter_unrelated_topics(query, internet_results)
         
         if len(filtered_results) == 0:
-            print(f"[RAG] No relevant results after filtering, using top results...")
-            filtered_results = search_results[:5]
+            print(f"[RAG] Warning: All results filtered out, using original results...")
+            filtered_results = internet_results
         
+        print(f"[RAG] After filtering unrelated topics: {len(filtered_results)} relevant results")
         
-        print(f"[RAG] Step 2: Analyzing {len(filtered_results)} relevant Stack Overflow answers with RAG...")
-        rag_result = rag_integration.generate_answer(query, filtered_results)
+        top_results = filtered_results[:8]
         
+        print(f"[RAG] Using top {len(top_results)} results for RAG analysis")
+        for i, result in enumerate(top_results[:3], 1):
+            print(f"[RAG] Result {i}: '{result.get('title', '')[:70]}...' (Source: {result.get('source', 'internet')})")
         
+        best_result = top_results[0] if top_results else {}
         
-        referenced_links = []
-        for i, result in enumerate(filtered_results[:5], 1):
-            if result.get('answers') and len(result.get('answers', [])) > 0:
-                clean_title = clean_html(result.get('title', ''))
-                
-                referenced_links.append({
-                    'title': clean_title,
-                    'link': result.get('link', ''),
-                    'score': result.get('score', 0)
-                })
+        print(f"[RAG] Step 2: Analyzing {len(top_results)} sources from internet with RAG...")
+        print(f"[RAG] Primary source: '{best_result.get('title', '')[:70]}...'")
+        
+        rag_formatted_results = []
+        for result in top_results:
+            rag_formatted_results.append({
+                'title': result.get('title', ''),
+                'body': result.get('body', ''),
+                'answers': [{'body': result.get('answer_body', ''), 'is_accepted': True, 'score': result.get('score', 0)}],
+                'link': result.get('link', ''),
+                'score': result.get('score', 0)
+            })
+        
+        rag_result = rag_integration.generate_answer(query, rag_formatted_results)
+        
+        alternative_links = []
+        primary_title = clean_html(best_result.get('title', ''))
+        for result in top_results[1:]:
+            clean_title = clean_html(result.get('title', ''))
+            alternative_links.append({
+                'title': clean_title,
+                'link': result.get('link', ''),
+                'score': result.get('score', 0),
+                'relevance': result.get('score', 0)
+            })
+            if len(alternative_links) >= 7:
+                break
         
         response = {
             'question': query,
             'rag_response': rag_result.get('answer', 'Unable to generate answer'),
-            'references': referenced_links
+            'primary_source': {
+                'title': clean_html(best_result.get('title', '')),
+                'link': best_result.get('link', ''),
+                'score': best_result.get('score', 0),
+                'relevance': best_result.get('score', 0)  
+            },
+            'alternative_sources': alternative_links
         }
         
         return jsonify(response)
     
     except Exception as e:
         print(f"[RAG] Error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/analyze-document', methods=['POST'])
+def analyze_document():
+    try:
+        data = request.get_json()
+        question_title = data.get('question_title', '')
+        question_body = data.get('question_body', '')
+        answer_body = data.get('answer_body', '')
+        query = data.get('query', '')
+        
+        if not question_title or not answer_body:
+            return jsonify({'error': 'Question title and answer body are required'}), 400
+        
+        print(f"[RAG ANALYZE] Analyzing document: '{question_title[:60]}...'")
+        
+        search_query = query if query else question_title
+        
+        print(f"[RAG ANALYZE] Fetching related results for: '{search_query}'")
+        related_results = _fetch_live_results(search_query, tag=None, max_results=5)
+        
+        primary_analysis = rag_integration.analyze_single_document(
+            question_title=question_title,
+            question_body=question_body or '',
+            answer_body=answer_body,
+            query=search_query
+        )
+        
+        all_steps = set()
+        all_code_examples = []
+        all_key_concepts = []
+        all_important_notes = []
+        all_explanations = []
+        all_imports = set()
+        
+        if primary_analysis.get('success'):
+            for step in primary_analysis.get('step_by_step_solution', []):
+                all_steps.add(step)
+            all_code_examples.extend(primary_analysis.get('code_examples', []))
+            all_key_concepts.extend(primary_analysis.get('key_concepts', []))
+            all_important_notes.extend(primary_analysis.get('important_notes', []))
+            all_explanations.extend(primary_analysis.get('explanations', []))
+            all_imports.update(primary_analysis.get('imports', []))
+        
+        for result in related_results[:3]:  # Analyze top 3 related results
+            if result.get('title') == question_title:
+                continue  
+            
+            answers = result.get('answers', [])
+            if not answers:
+                continue
+            
+            best_answer = max(answers, key=lambda a: (a.get('is_accepted', False), a.get('score', 0)))
+            
+            related_analysis = rag_integration.analyze_single_document(
+                question_title=result.get('title', ''),
+                question_body=result.get('body', '')[:600] if result.get('body') else '',
+                answer_body=best_answer.get('body', ''),
+                query=search_query
+            )
+            
+            if related_analysis.get('success'):
+                for step in related_analysis.get('step_by_step_solution', []):
+                    is_duplicate = False
+                    for existing_step in all_steps:
+                        words_existing = set(existing_step.lower().split())
+                        words_new = set(step.lower().split())
+                        similarity = len(words_existing & words_new) / max(len(words_existing | words_new), 1)
+                        if similarity > 0.7:  
+                            is_duplicate = True
+                            break
+                    if not is_duplicate:
+                        all_steps.add(step)
+                
+                all_code_examples.extend(related_analysis.get('code_examples', []))
+                all_key_concepts.extend(related_analysis.get('key_concepts', []))
+                all_important_notes.extend(related_analysis.get('important_notes', []))
+                all_explanations.extend(related_analysis.get('explanations', []))
+                all_imports.update(related_analysis.get('imports', []))
+        
+        
+        steps_list = list(all_steps)
+        steps_list.sort(key=lambda s: (
+            -len(s),  
+            sum(1 for word in ['create', 'add', 'configure', 'implement', 'use', 'define', 'annotate', 'write', 'build', 'set up', 'install'] if word in s.lower())
+        ), reverse=True)
+        
+        unique_code_examples = []
+        seen_code_signatures = set()
+        for code_ex in all_code_examples:
+            code_sig = code_ex['code'][:100].lower().replace(' ', '').replace('\n', '')
+            if code_sig not in seen_code_signatures:
+                unique_code_examples.append(code_ex)
+                seen_code_signatures.add(code_sig)
+        
+        comprehensive_result = {
+            'original_question': question_title,
+            'step_by_step_solution': steps_list[:20],  
+            'code_examples': unique_code_examples[:8],  
+            'key_concepts': list(set(all_key_concepts))[:12],  
+            'important_notes': list(set(all_important_notes))[:10],
+            'explanations': list(set(all_explanations))[:10],
+            'imports': list(all_imports)[:15],
+            'sources_analyzed': len(related_results) + 1,  
+            'success': True
+        }
+        
+        print(f"[RAG ANALYZE] Generated {len(steps_list)} steps from {comprehensive_result['sources_analyzed']} sources")
+        
+        return jsonify(comprehensive_result)
+    
+    except Exception as e:
+        print(f"[RAG ANALYZE] Error: {e}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
@@ -566,16 +727,24 @@ def _improve_search_query(query: str, tag: str = None) -> str:
     words = query.split()
     
     
+    # Expanded tech keywords including exception handling terms
     tech_keywords = ['api', 'rest', 'spring', 'boot', 'controller', 'endpoint', 'request', 'response', 
-                     'annotation', 'mapping', 'service', 'repository', 'entity', 'model', 'dto']
+                     'annotation', 'mapping', 'service', 'repository', 'entity', 'model', 'dto',
+                     'exception', 'error', 'handle', 'handling', 'catch', 'throw', 'try', 'catch',
+                     'authentication', 'authorization', 'security', 'validation', 'filter', 'interceptor']
     
+    # Keep important words: tech keywords, long words (>3 chars), or exception-related terms
     for word in words:
-        if any(keyword in word for keyword in tech_keywords) or len(word) > 4:
+        word_lower = word.lower()
+        # Keep if it's a tech keyword, exception-related, or meaningful word (>3 chars)
+        if (any(keyword in word_lower for keyword in tech_keywords) or 
+            len(word) > 3 or
+            word_lower in ['how', 'what', 'why', 'when', 'where', 'exception', 'error', 'handle']):
             important_terms.append(word)
     
     
     if important_terms:
-        improved = ' '.join(important_terms[:6])
+        improved = ' '.join(important_terms[:8])  
     else:
         improved = query
     
@@ -585,7 +754,64 @@ def _improve_search_query(query: str, tag: str = None) -> str:
         if tag_normalized not in improved:
             improved = f"{improved} {tag_normalized}"
     
+    print(f"[RAG] Query improved: '{query}' -> '{improved}'")
     return improved.strip()
+
+
+def _select_best_result(results: List[Dict]) -> Dict:
+
+    if not results:
+        return results[0] if results else {}
+    
+    if len(results) == 1:
+        return results[0]
+    
+
+    scored = []
+    for result in results:
+        score = 0.0
+        
+
+        relevance = result.get('relevance_score', 0)
+        score += relevance * 10  
+        
+
+        so_score = result.get('score', 0)
+        score += min(so_score, 50) * 0.5 
+        
+
+        answers = result.get('answers', [])
+        has_accepted = any(a.get('is_accepted', False) for a in answers)
+        if has_accepted:
+            score += 20
+        
+
+        if answers:
+            best_answer = max(answers, key=lambda a: a.get('score', 0))
+            answer_length = len(best_answer.get('body', ''))
+
+            if 500 <= answer_length <= 3000:
+                score += 15
+            elif answer_length > 3000:
+                score += 10
+            elif answer_length > 200:
+                score += 5
+        
+
+        answer_body = answers[0].get('body', '') if answers else ''
+        has_code = '<code>' in answer_body or '<pre>' in answer_body or '```' in answer_body
+        if has_code:
+            score += 10
+        
+        scored.append((result, score))
+    
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    
+    best = scored[0][0]
+    print(f"[RAG] Best result score: {scored[0][1]:.1f} | Title: {best.get('title', '')[:60]}...")
+    
+    return best
 
 
 def _filter_relevant_results(query: str, results: List[Dict], tag: str = None) -> List[Dict]:
@@ -594,14 +820,40 @@ def _filter_relevant_results(query: str, results: List[Dict], tag: str = None) -
         return []
     
     query_lower = query.lower()
-    query_words = set([w for w in query_lower.split() if len(w) > 3])
+    stop_words = {'how', 'to', 'the', 'a', 'an', 'is', 'are', 'in', 'on', 'at', 'for', 'with', 'by'}
+    query_words = set([w for w in query_lower.split() if len(w) > 3 and w not in stop_words])
     
+    core_intent_words = []
+    for word in query_lower.split():
+        if len(word) > 4 and word not in stop_words:
+            core_intent_words.append(word)
+    
+    if len(core_intent_words) == 0:
+        core_intent_words = [w for w in query_lower.split() if len(w) > 3 and w not in stop_words]
     
     if tag:
         tag_words = tag.replace('-', ' ').lower().split()
         query_words.update([w for w in tag_words if len(w) > 2])
+        core_intent_words.extend([w for w in tag_words if len(w) > 2])
+    
+    print(f"[RAG FILTER] Query: '{query}' | Core intent words: {core_intent_words} | Query words: {query_words}")
     
     relevant_results = []
+    
+    unrelated_topics = {
+        'rabbitmq': ['rabbitmq', 'rabbit', 'amqp', 'message queue', 'queue'],
+        'kafka': ['kafka', 'streaming'],
+        'redis': ['redis', 'cache'],
+        'mongodb': ['mongodb', 'mongo'],
+        'postgresql': ['postgresql', 'postgres'],
+        'database': ['database', 'db', 'sql'],
+    }
+    
+    query_has_unrelated = False
+    for topic, terms in unrelated_topics.items():
+        if any(term in query_lower for term in terms):
+            query_has_unrelated = True
+            break
     
     for result in results:
         title = result.get('title', '').lower()
@@ -612,24 +864,47 @@ def _filter_relevant_results(query: str, results: List[Dict], tag: str = None) -
         answers = result.get('answers', [])
         if not answers or len(answers) == 0:
             continue
+            
+        core_in_title = any(word in title for word in core_intent_words)
+        if not core_in_title and len(core_intent_words) > 0:
+            continue
         
+        if not query_has_unrelated:
+            has_unrelated_topic = False
+            for topic, terms in unrelated_topics.items():
+                title_mentions = sum(1 for term in terms if term in title)
+                body_mentions = sum(1 for term in terms if term in body[:500])  
+                
+                if title_mentions > 0 or body_mentions > 2:
+                    core_mentions = sum(1 for word in core_intent_words if word in title)
+                    if core_mentions == 0:
+                        has_unrelated_topic = True
+                        break
+            
+            if has_unrelated_topic:
+                continue
         
         relevance_score = 0
-        
-        
+
         title_matches = sum(1 for word in query_words if word in title)
-        relevance_score += title_matches * 3
-        
+        relevance_score += title_matches * 10  
+
+        core_title_matches = sum(1 for word in core_intent_words if word in title)
+        relevance_score += core_title_matches * 20  # Very heavy bonus
         
         body_matches = sum(1 for word in query_words if word in body)
         relevance_score += body_matches
         
+        core_body_matches = sum(1 for word in core_intent_words if word in body)
+        relevance_score += core_body_matches * 3
 
         for answer in answers[:2]:  
             answer_body = answer.get('body', '').lower()
             answer_matches = sum(1 for word in query_words if word in answer_body)
             relevance_score += answer_matches * 0.5
-        
+            
+            core_answer_matches = sum(1 for word in core_intent_words if word in answer_body)
+            relevance_score += core_answer_matches * 2
         
         result_tags = result.get('tags', '[]')
         try:
@@ -650,11 +925,183 @@ def _filter_relevant_results(query: str, results: List[Dict], tag: str = None) -
             result['relevance_score'] = relevance_score
             relevant_results.append(result)
     
-    
     relevant_results.sort(key=lambda x: (x.get('relevance_score', 0), x.get('score', 0)), reverse=True)
     
+    print(f"[RAG FILTER] Filtered {len(relevant_results)} relevant results from {len(results)} total")
+    if relevant_results:
+        for i, r in enumerate(relevant_results[:3], 1):
+            print(f"[RAG FILTER] Result {i}: '{r.get('title', '')[:70]}...' (Score: {r.get('relevance_score', 0)})")
     
     return relevant_results[:8]
+
+
+def _search_internet(query: str, max_results: int = 15) -> List[Dict]:
+    if not WEB_SEARCH_AVAILABLE:
+        print("[WARNING] DuckDuckGo search not available. Install: pip install duckduckgo-search")
+        return []
+    
+    try:
+        print(f"[INTERNET SEARCH] Searching internet for: '{query}'")
+        
+        query_lower = query.lower()
+        exclude_terms = []
+        
+        if 'rabbitmq' not in query_lower and 'rabbit' not in query_lower:
+            exclude_terms.append('-rabbitmq')
+            exclude_terms.append('-rabbit')
+        
+        if 'kafka' not in query_lower:
+            exclude_terms.append('-kafka')
+        
+        search_query = query
+        if exclude_terms:
+            search_query = f"{query} {' '.join(exclude_terms)}"
+            print(f"[INTERNET SEARCH] Excluding: {exclude_terms}")
+        
+        results = []
+        with DDGS() as ddgs:
+            search_results = ddgs.text(
+                search_query,
+                max_results=max_results,
+                region='wt-wt',  # Worldwide
+                safesearch='moderate'
+            )
+            
+            for item in search_results:
+                title = item.get('title', '')
+                body = item.get('body', '')
+                link = item.get('href', '')
+                
+                if not title or not body:
+                    continue
+                
+                page_content = _fetch_webpage_content(link)
+                
+                results.append({
+                    'title': title,
+                    'body': body[:1000] if body else '',  # Snippet
+                    'answer_body': page_content[:3000] if page_content else body[:2000],  # Full content or snippet
+                    'link': link,
+                    'score': 10,  
+                    'source': 'internet'
+                })
+        
+        print(f"[INTERNET SEARCH] Found {len(results)} results from internet")
+        return results
+        
+    except Exception as e:
+        print(f"[INTERNET SEARCH] Error: {e}")
+        traceback.print_exc()
+        return []
+
+
+def _fetch_webpage_content(url: str) -> str:
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=5)
+        
+        if response.status_code == 200:
+            html = response.text
+            html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            text_content = re.sub(r'<[^>]+>', ' ', html)
+            text_content = re.sub(r'\s+', ' ', text_content).strip()
+            return text_content[:5000]  
+    except Exception as e:
+        print(f"[WEB FETCH] Error fetching {url}: {e}")
+    
+    return ""
+
+
+def _filter_unrelated_topics(query: str, results: List[Dict]) -> List[Dict]:
+    query_lower = query.lower()
+    
+    stop_words = {'how', 'to', 'the', 'a', 'an', 'is', 'are', 'in', 'on', 'at', 'for', 'with', 'by'}
+    core_terms = [w for w in query_lower.split() if len(w) > 3 and w not in stop_words]
+    
+    if not core_terms:
+        core_terms = [w for w in query_lower.split() if len(w) > 2 and w not in stop_words]
+    
+    print(f"[RAG FILTER] Query: '{query}'")
+    print(f"[RAG FILTER] Core terms (MUST HAVE): {core_terms}")
+    
+    unrelated_topics = {
+        'rabbitmq': ['rabbitmq', 'rabbit', 'amqp', 'message queue', 'queue', 'rabbitlistener', 'rabbiterrorhandler', 'rabbitmq', 'rabbit listener'],
+        'kafka': ['kafka', 'streaming', 'producer', 'consumer'],
+        'redis': ['redis', 'cache'],
+        'mongodb': ['mongodb', 'mongo'],
+        'database': ['database', 'db', 'sql'],
+        'docker': ['docker', 'container'],
+        'aws': ['aws', 'amazon'],
+    }
+    
+    query_mentions_unrelated = False
+    for topic, terms in unrelated_topics.items():
+        if any(term in query_lower for term in terms):
+            query_mentions_unrelated = True
+            print(f"[RAG FILTER] Query mentions {topic}, allowing it")
+            break
+    
+    filtered = []
+    
+    for result in results:
+        title = result.get('title', '').lower()
+        body = result.get('body', '').lower()
+        answer_body = result.get('answer_body', '').lower()
+        combined_text = f"{title} {body} {answer_body}"
+        
+        if not query_mentions_unrelated:
+            exclude_result = False
+            
+            for topic, terms in unrelated_topics.items():
+                title_has_unrelated = any(term in title for term in terms)
+                
+                unrelated_in_content = sum(1 for term in terms if term in combined_text[:1500])
+                
+                if title_has_unrelated:
+                    core_in_title = any(term in title for term in core_terms)
+                    if not core_in_title:
+                        exclude_result = True
+                        print(f"[RAG FILTER]  EXCLUDED: '{result.get('title', '')[:70]}...'")
+                        print(f"[RAG FILTER]    Reason: {topic} in title BUT core terms NOT in title")
+                        break
+                
+                if unrelated_in_content >= 2:
+                    core_in_title = any(term in title for term in core_terms)
+                    core_in_content = sum(1 for term in core_terms if term in combined_text[:1500])
+                    
+                    if unrelated_in_content > core_in_content and not core_in_title:
+                        exclude_result = True
+                        print(f"[RAG FILTER] ❌❌❌ EXCLUDED: '{result.get('title', '')[:70]}...'")
+                        print(f"[RAG FILTER]    Reason: {topic} mentioned {unrelated_in_content}x, core terms only {core_in_content}x")
+                        break
+            
+            if exclude_result:
+                continue
+        
+        relevance_score = 0
+        core_in_title_count = sum(1 for term in core_terms if term in title)
+        core_in_content_count = sum(1 for term in core_terms if term in combined_text[:2000])
+        
+        if core_in_title_count == 0 and core_in_content_count == 0:
+            print(f"[RAG FILTER] ❌ EXCLUDED: '{result.get('title', '')[:70]}...' (Reason: No core terms found)")
+            continue
+        
+        relevance_score = (core_in_title_count * 20) + (core_in_content_count * 3)
+        
+        result['relevance_score'] = relevance_score
+        filtered.append(result)
+        print(f"[RAG FILTER] ✅ KEPT: '{result.get('title', '')[:70]}...' (Score: {relevance_score})")
+    
+    filtered.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+    
+    print(f"[RAG FILTER] ========================================")
+    print(f"[RAG FILTER] Filtered: {len(results)} -> {len(filtered)} results")
+    print(f"[RAG FILTER] ========================================")
+    
+    return filtered
 
 
 def _fetch_live_results(query: str, tag: str = None, max_results: int = 5) -> List[Dict]:
@@ -667,16 +1114,21 @@ def _fetch_live_results(query: str, tag: str = None, max_results: int = 5) -> Li
         params = {
             'site': 'stackoverflow',
             'order': 'desc',
-            'sort': 'relevance',
-            'q': query,
-            'filter': 'withbody',
-            'pagesize': max_results * 2,  
-            'answers': 1
+            'sort': 'relevance',  
+            'q': query,  # Search query
+            'filter': 'withbody',  
+            'pagesize': min(max_results * 2, 50),  
+            'answers': 1  
         }
-        
         
         if tag:
             params['tagged'] = tag
+        
+        print(f"[LIVE ASSIST] Stack Overflow API Request:")
+        print(f"[LIVE ASSIST]   Query: '{query}'")
+        print(f"[LIVE ASSIST]   Tag: {tag}")
+        print(f"[LIVE ASSIST]   Sort: relevance")
+        print(f"[LIVE ASSIST]   Page size: {params['pagesize']}")
         
         if STACK_API_KEY:
             params['key'] = STACK_API_KEY
