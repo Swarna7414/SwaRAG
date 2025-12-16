@@ -22,7 +22,7 @@
     },
     {
       "tag": "spring-boot",
-      "query": "connect to MySQL database",
+      "query": "how to connect to MySQL database",
       "results_count": 5,
       "relevant_count": 3,
       "precision": 0.6,
@@ -30,7 +30,7 @@
     },
     {
       "tag": "react",
-      "query": "useState hook",
+      "query": "how to use useState hook",
       "results_count": 5,
       "relevant_count": 5,
       "precision": 1.0,
@@ -38,7 +38,7 @@
     },
     {
       "tag": "react",
-      "query": "fetch API data",
+      "query": "how to fetch API data",
       "results_count": 5,
       "relevant_count": 5,
       "precision": 1.0,
@@ -46,7 +46,7 @@
     },
     {
       "tag": "react",
-      "query": "useEffect hook",
+      "query": "what is useEffect hook",
       "results_count": 5,
       "relevant_count": 5,
       "precision": 1.0,
@@ -54,7 +54,7 @@
     },
     {
       "tag": "node.js",
-      "query": "async await",
+      "query": "what is async await",
       "results_count": 3,
       "relevant_count": 3,
       "precision": 1.0,
@@ -62,7 +62,7 @@
     },
     {
       "tag": "node.js",
-      "query": "connect MongoDB",
+      "query": "how to connect MongoDB to the backend",
       "results_count": 5,
       "relevant_count": 5,
       "precision": 1.0,
@@ -70,7 +70,7 @@
     },
     {
       "tag": "node.js",
-      "query": "create Express server",
+      "query": "how to create Express server",
       "results_count": 5,
       "relevant_count": 5,
       "precision": 1.0,
@@ -78,7 +78,7 @@
     },
     {
       "tag": "django",
-      "query": "create REST API",
+      "query": "how to create REST API",
       "results_count": 0,
       "relevant_count": 0,
       "precision": 0.0,
@@ -86,7 +86,7 @@
     },
     {
       "tag": "django",
-      "query": "create models",
+      "query": "how to create models",
       "results_count": 5,
       "relevant_count": 5,
       "precision": 1.0,
@@ -94,7 +94,7 @@
     },
     {
       "tag": "django",
-      "query": "user authentication",
+      "query": " how to user authentication",
       "results_count": 5,
       "relevant_count": 5,
       "precision": 1.0,
@@ -102,7 +102,7 @@
     },
     {
       "tag": "flask",
-      "query": "create REST API",
+      "query": "how to create REST API",
       "results_count": 0,
       "relevant_count": 0,
       "precision": 0.0,
@@ -110,7 +110,7 @@
     },
     {
       "tag": "flask",
-      "query": "create routes",
+      "query": "how to create routes",
       "results_count": 1,
       "relevant_count": 1,
       "precision": 1.0,
