@@ -32,6 +32,7 @@ CORS(app, origins="*", methods=["GET", "POST", "OPTIONS"], allow_headers=["Conte
 
 
 STACK_API_KEY = os.getenv("STACK_API_KEY", "rl_fGs2ccsxwAxAuDAQ3EjWyXknM")
+REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY", None)
 CLIENT_ID = os.getenv("CLIENT_ID", "35343")
 DB_PATH = os.getenv("DB_PATH", "stackoverflow.db")
 
@@ -64,7 +65,16 @@ text_processor = TextProcessor()
 indexer = Indexer(db, text_processor)
 query_processor = QueryProcessor(db, text_processor)
 bm25_ranker = BM25Ranker(db, text_processor)
-rag_integration = RAGIntegration(STACK_API_KEY)
+
+
+
+
+rag_api_key = REPLICATE_API_KEY if REPLICATE_API_KEY else "placeholder_key"
+rag_integration = RAGIntegration(rag_api_key)
+if REPLICATE_API_KEY:
+    print("✓ RAG Integration initialized with Replicate API key")
+else:
+    print("⚠ NOTE: REPLICATE_API_KEY not set. Using rule-based extraction (works without API key).")
 
 
 def clean_html(html_text):
@@ -208,12 +218,13 @@ def search_with_rag():
         if not query:
             return jsonify({'error': 'Query is required'}), 400
         
+
         
         if tag:
             tag = _normalize_tag(tag)
-            print(f"[RAG] Query: '{query}' | Tag: '{tag}' (normalized) | Source: LIVE ONLY")
+            print(f"[RAG] Query: '{query}' | Tag: '{tag}' (normalized)")
         else:
-            print(f"[RAG] Query: '{query}' | Tag: All | Source: LIVE ONLY")
+            print(f"[RAG] Query: '{query}' | Tag: All")
         
        
         
@@ -231,62 +242,139 @@ def search_with_rag():
         if tag:
             search_query = f"{search_query} {tag}"
         
-        print(f"[RAG] Step 1: Searching the INTERNET ONLY...")
-        print(f"[RAG] Original query: '{original_query}'")
-        print(f"[RAG] Important words: {important_words}")
-        print(f"[RAG] Tag: {tag}")
+
+        print(f"[RAG] Step 1: Searching local index...")
+        local_results = bm25_ranker.search_and_rank(query, min_score=10.0, tag=tag)  # Lower threshold for RAG
+        print(f"[RAG] Found {len(local_results)} results from local index")
+        
+
+        if len(local_results) == 0 and tag:
+            print(f"[RAG] No results with tag '{tag}', trying without tag...")
+            local_results = bm25_ranker.search_and_rank(query, min_score=10.0, tag=None)
+            print(f"[RAG] Found {len(local_results)} results without tag filter")
+        
+        print(f"[RAG] Step 2: Searching internet...")
         print(f"[RAG] Internet search query: '{search_query}'")
-        
-        internet_results = _search_internet(search_query, max_results=20)
-        
-        if len(internet_results) == 0:
-            return jsonify({
-                'question': query,
-                'rag_response': 'No relevant information found on the internet. Please try rephrasing your question or using different keywords.'
-            })
-        
+        internet_results = _search_internet(search_query, max_results=15)
         print(f"[RAG] Found {len(internet_results)} results from internet search")
         
-        filtered_results = _filter_unrelated_topics(query, internet_results)
+
+        all_results = []
         
-        if len(filtered_results) == 0:
-            print(f"[RAG] Warning: All results filtered out, using original results...")
-            filtered_results = internet_results
+
+        for local_result in local_results[:5]:
+            all_results.append({
+                'title': local_result.get('title', ''),
+                'body': local_result.get('body', '')[:600],
+                'answers': local_result.get('answers', []),
+                'link': local_result.get('link', ''),
+                'score': local_result.get('score', 0),
+                'source': 'local'
+            })
         
-        print(f"[RAG] After filtering unrelated topics: {len(filtered_results)} relevant results")
+
+        if internet_results:
+            filtered_internet = _filter_unrelated_topics(query, internet_results)
+            if len(filtered_internet) == 0:
+                print(f"[RAG] Warning: All internet results filtered out, using original results...")
+                filtered_internet = internet_results
+            
+            for internet_result in filtered_internet[:5]:
+
+                is_duplicate = any(
+                    internet_result.get('link') == r.get('link') 
+                    for r in all_results
+                )
+                if not is_duplicate:
+                    all_results.append({
+                        'title': internet_result.get('title', ''),
+                        'body': internet_result.get('body', '')[:600],
+                        'answers': [{
+                            'body': internet_result.get('answer_body', ''),
+                            'is_accepted': True,
+                            'score': internet_result.get('score', 0)
+                        }],
+                        'link': internet_result.get('link', ''),
+                        'score': internet_result.get('score', 0),
+                        'source': 'internet'
+                    })
         
-        top_results = filtered_results[:8]
+
+        if len(all_results) == 0:
+            print(f"[RAG] No local or internet results, trying Stack Overflow API fallback...")
+            so_results = _fetch_live_results(query, tag=tag, max_results=5)
+            
+            if so_results:
+                print(f"[RAG] Found {len(so_results)} results from Stack Overflow API")
+                for so_result in so_results[:5]:
+                    if so_result.get('answers'):
+                        all_results.append({
+                            'title': so_result.get('title', ''),
+                            'body': so_result.get('body', '')[:600],
+                            'answers': so_result.get('answers', []),
+                            'link': so_result.get('link', ''),
+                            'score': so_result.get('score', 0),
+                            'source': 'stackoverflow_api'
+                        })
+            
+
+            if len(all_results) == 0:
+                return jsonify({
+                    'question': query,
+                    'rag_response': 'No relevant information found. Please try rephrasing your question or using different keywords.',
+                    'error': 'No results found from local index, internet search, or Stack Overflow API'
+                }), 404
         
-        print(f"[RAG] Using top {len(top_results)} results for RAG analysis")
-        for i, result in enumerate(top_results[:3], 1):
-            print(f"[RAG] Result {i}: '{result.get('title', '')[:70]}...' (Source: {result.get('source', 'internet')})")
+        print(f"[RAG] Step 3: Using {len(all_results)} combined results for RAG analysis")
+        for i, result in enumerate(all_results[:3], 1):
+            print(f"[RAG] Result {i}: '{result.get('title', '')[:70]}...' (Source: {result.get('source', 'unknown')})")
         
-        best_result = top_results[0] if top_results else {}
+        best_result = all_results[0] if all_results else {}
         
-        print(f"[RAG] Step 2: Analyzing {len(top_results)} sources from internet with RAG...")
-        print(f"[RAG] Primary source: '{best_result.get('title', '')[:70]}...'")
+        print(f"[RAG] Step 4: Generating answer with RAG from {len(all_results)} sources...")
         
+
         rag_formatted_results = []
-        for result in top_results:
+        for result in all_results[:8]:  
+            answers = result.get('answers', [])
+            
+
+            if not answers:
+
+                answers = [{
+                    'body': result.get('body', ''),
+                    'is_accepted': False,
+                    'score': 0
+                }]
+            
             rag_formatted_results.append({
                 'title': result.get('title', ''),
                 'body': result.get('body', ''),
-                'answers': [{'body': result.get('answer_body', ''), 'is_accepted': True, 'score': result.get('score', 0)}],
+                'answers': answers,
                 'link': result.get('link', ''),
                 'score': result.get('score', 0)
             })
         
+        if not rag_formatted_results:
+            return jsonify({
+                'question': query,
+                'rag_response': 'Found results but no answers available. Please check the source links.',
+                'error': 'No answers found in results'
+            }), 404
+        
+
         rag_result = rag_integration.generate_answer(query, rag_formatted_results)
         
+
         alternative_links = []
-        primary_title = clean_html(best_result.get('title', ''))
-        for result in top_results[1:]:
+        for result in all_results[1:]:
             clean_title = clean_html(result.get('title', ''))
             alternative_links.append({
                 'title': clean_title,
                 'link': result.get('link', ''),
                 'score': result.get('score', 0),
-                'relevance': result.get('score', 0)
+                'relevance': result.get('score', 0),
+                'source': result.get('source', 'unknown')
             })
             if len(alternative_links) >= 7:
                 break
@@ -298,9 +386,12 @@ def search_with_rag():
                 'title': clean_html(best_result.get('title', '')),
                 'link': best_result.get('link', ''),
                 'score': best_result.get('score', 0),
-                'relevance': best_result.get('score', 0)  
+                'relevance': best_result.get('score', 0),
+                'source': best_result.get('source', 'unknown')
             },
-            'alternative_sources': alternative_links
+            'alternative_sources': alternative_links,
+            'sources_used': len(rag_formatted_results),
+            'success': rag_result.get('success', False)
         }
         
         return jsonify(response)
@@ -308,7 +399,11 @@ def search_with_rag():
     except Exception as e:
         print(f"[RAG] Error: {e}")
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'question': query if 'query' in locals() else '',
+            'rag_response': 'An error occurred while generating the answer. Please try again.'
+        }), 500
 
 
 @app.route('/analyze-document', methods=['POST'])
@@ -353,7 +448,7 @@ def analyze_document():
             all_explanations.extend(primary_analysis.get('explanations', []))
             all_imports.update(primary_analysis.get('imports', []))
         
-        for result in related_results[:3]:  # Analyze top 3 related results
+        for result in related_results[:3]:
             if result.get('title') == question_title:
                 continue  
             

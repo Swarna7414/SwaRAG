@@ -1,0 +1,128 @@
+{
+  "total_queries": 15,
+  "average_precision": 0.84,
+  "average_recall": 0.016387486845534555,
+  "f1_score": 0.03214780496374041,
+  "detailed_results": [
+    {
+      "tag": "spring-boot",
+      "query": "how to create REST API",
+      "results_count": 4,
+      "relevant_count": 4,
+      "precision": 1.0,
+      "recall": 0.011049723756906077
+    },
+    {
+      "tag": "spring-boot",
+      "query": "how to handle exceptions",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.013812154696132596
+    },
+    {
+      "tag": "spring-boot",
+      "query": "connect to MySQL database",
+      "results_count": 5,
+      "relevant_count": 3,
+      "precision": 0.6,
+      "recall": 0.008287292817679558
+    },
+    {
+      "tag": "react",
+      "query": "useState hook",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.026041666666666668
+    },
+    {
+      "tag": "react",
+      "query": "fetch API data",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.026041666666666668
+    },
+    {
+      "tag": "react",
+      "query": "useEffect hook",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.026041666666666668
+    },
+    {
+      "tag": "node.js",
+      "query": "async await",
+      "results_count": 3,
+      "relevant_count": 3,
+      "precision": 1.0,
+      "recall": 0.015306122448979591
+    },
+    {
+      "tag": "node.js",
+      "query": "connect MongoDB",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.025510204081632654
+    },
+    {
+      "tag": "node.js",
+      "query": "create Express server",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.025510204081632654
+    },
+    {
+      "tag": "django",
+      "query": "create REST API",
+      "results_count": 0,
+      "relevant_count": 0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    {
+      "tag": "django",
+      "query": "create models",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.027932960893854747
+    },
+    {
+      "tag": "django",
+      "query": "user authentication",
+      "results_count": 5,
+      "relevant_count": 5,
+      "precision": 1.0,
+      "recall": 0.027932960893854747
+    },
+    {
+      "tag": "flask",
+      "query": "create REST API",
+      "results_count": 0,
+      "relevant_count": 0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    {
+      "tag": "flask",
+      "query": "create routes",
+      "results_count": 1,
+      "relevant_count": 1,
+      "precision": 1.0,
+      "recall": 0.006172839506172839
+    },
+    {
+      "tag": "flask",
+      "query": "connect database SQLAlchemy",
+      "results_count": 1,
+      "relevant_count": 1,
+      "precision": 1.0,
+      "recall": 0.006172839506172839
+    }
+  ]
+}
